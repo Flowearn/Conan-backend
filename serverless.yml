@@ -1,0 +1,30 @@
+service: conan-backend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ap-northeast-1
+  memorySize: 512
+  timeout: 30
+  environment:
+    NODE_ENV: ${self:provider.stage}
+
+functions:
+  api:
+    handler: src/index.handler
+    events:
+      - httpApi:
+          path: /
+          method: ANY
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+    environment:
+      NODE_ENV: ${self:provider.stage}
+
+plugins:
+  - serverless-offline
+  - serverless-dotenv-plugin 
