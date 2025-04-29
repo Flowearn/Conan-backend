@@ -311,14 +311,19 @@ async function getBscTokenDataBundle(address) {
         console.log("[HANG DEBUG] After topTraders standardization");
 
         // 3d. 生成 holderStats 数据
+        // --- Start: PRECISE Fix for holderStats Standardization Mapping ONLY ---
+        console.log('[BscService] Mapping holder stats from raw object:', JSON.stringify(moralisHolderStatsRaw, null, 2)); // Log the input object we successfully extracted previously
         standardizedData.holderStats = {
-            totalHolders: moralisHolderStatsRaw?.totalHolders || 0,
-            totalHoldersFormatted: safeNumberSuffix(moralisHolderStatsRaw?.totalHolders),
-            holdersV: moralisHolderStatsRaw?.holdersV || [0,0,0,0,0,0,0],
-            noHolders: moralisHolderStatsRaw?.holdersV?.reduce((c, h) => c + h, 0) || 0,
-            totalSupply: moralisMetadata?.totalSupply || 0,
-            decimalPlace: moralisMetadata?.decimals || 18
+            // Use optional chaining (?.) and nullish coalescing (??) for safety
+            totalHolders: moralisHolderStatsRaw?.totalHolders ?? null, // **FIX:** Read from moralisHolderStatsRaw
+            // **FIX:** Ensure other fields are also correctly read from moralisHolderStatsRaw, providing defaults if null/undefined
+            holderChange: moralisHolderStatsRaw?.holderChange ?? { '5min':{change:null,changePercent:null},'1h':{change:null,changePercent:null},'6h':{change:null,changePercent:null},'24h':{change:null,changePercent:null},'3d':{change:null,changePercent:null},'7d':{change:null,changePercent:null},'30d':{change:null,changePercent:null} },
+            holderSupply: moralisHolderStatsRaw?.holderSupply ?? { top10:{supplyPercent:null},top25:{supplyPercent:null},top50:{supplyPercent:null},top100:{supplyPercent:null} },
+            holderDistribution: moralisHolderStatsRaw?.holderDistribution ?? { whales:0, dolphins:0, fish:0, shrimps:0, sharks: 0, octopus: 0, crabs: 0 }, // Provide defaults for all keys
+            holdersByAcquisition: moralisHolderStatsRaw?.holdersByAcquisition ?? { swap:null, transfer:null, airdrop:null }
         };
+        console.log('[BscService] Final standardized holderStats object after fix:', JSON.stringify(standardizedData.holderStats, null, 2)); // Log the result of the mapping
+        // --- End: PRECISE Fix ---
         
         // Return the standardized data object
         console.log(`[HANG DEBUG] End of getBscTokenDataBundle`); // 11. 函数结束
