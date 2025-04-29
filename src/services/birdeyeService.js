@@ -27,7 +27,7 @@ async function testBirdeyeConnection() {
       params: {
         address: testTokenAddress
       },
-      timeout: 10000 // 10 秒超时
+      timeout: 30000 // 30 秒超时
     });
 
     console.log('Received response from Birdeye API:', response.data); 
@@ -132,7 +132,7 @@ async function getBirdeyeTokenData(contractAddress) {
       params: {
         address: contractAddress // 使用原始地址，不转换为小写
       },
-      timeout: 10000 // 10 秒超时
+      timeout: 30000 // 30 秒超时
     });
 
     console.log('Received token data response from Birdeye API:', JSON.stringify(response.data).substring(0, 500) + '...');
@@ -229,7 +229,7 @@ async function getBirdeyeTokenSecurity(contractAddress) {
       params: {
         address: contractAddress // 使用原始地址，不转换为小写
       },
-      timeout: 10000 // 10 秒超时
+      timeout: 30000 // 30 秒超时
     });
 
     console.log('Received token security data response from Birdeye API:', JSON.stringify(response.data).substring(0, 500) + '...');
@@ -330,7 +330,7 @@ async function getBirdeyeTokenHolders(contractAddress, limit = 100, offset = 0) 
         offset: offset,
         limit: limit
       },
-      timeout: 5000
+      timeout: 30000 // 30秒超时
     });
     
     console.log(`Birdeye token holders response status: ${response.status}`);
@@ -429,7 +429,7 @@ async function getBirdeyeTopTraders(contractAddress, timeFrame = '24h', limit = 
         'X-API-KEY': apiKey,
         'x-chain': 'bsc'
       },
-      timeout: 10000
+      timeout: 30000
     });
 
     console.log('Received Birdeye top traders response:', response.data);
@@ -511,7 +511,7 @@ async function getBirdeyeTokenOverview(contractAddress) {
       params: {
         address: contractAddress
       },
-      timeout: 15000 // 增加超时时间到15秒
+      timeout: 30000 // 增加超时时间到30秒
     });
 
     console.log(`Birdeye API response status code: ${response.status}`);

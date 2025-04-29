@@ -16,7 +16,7 @@ if (!moralisApiKey) {
 }
 
 // 添加全局超时配置，确保API调用不会永久挂起
-const API_TIMEOUT = 15000; // 15秒
+const API_TIMEOUT = 30000; // 30秒
 const CACHE_DEFAULT_TTL = 300; // 5分钟
 
 // 添加指数退避重试函数
@@ -1214,7 +1214,7 @@ async function getMoralisTokenHolders(contractAddress, chain = 'bsc') {
         'Accept': 'application/json',
         'X-API-Key': moralisApiKey
       },
-      timeout: 15000 // 15秒超时
+      timeout: 30000 // 30秒超时
     });
     
     console.log(`Moralis /holders API response status: ${response.status}`);
