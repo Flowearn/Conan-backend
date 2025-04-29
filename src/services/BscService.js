@@ -33,6 +33,16 @@ async function getBscTokenDataBundle(address) {
 
     try {
         console.log(`[HANG DEBUG] Before Promise.allSettled`); // 2. API 调用前
+        
+        // 添加更详细的API调用日志
+        console.log('[BscService] Calling Moralis/Birdeye APIs with following parameters:');
+        console.log(`[BscService] [API:0] getMoralisTokenData: ${contractAddress}`);
+        console.log(`[BscService] [API:1] getMoralisTokenMetadata: ${contractAddress}`);
+        console.log(`[BscService] [API:2] getMoralisTokenHolders: ${contractAddress}, chain=bsc, limit=100, offset=0`);
+        console.log(`[BscService] [API:3] getMoralisTokenHolderStats: ${contractAddress}`);
+        console.log(`[BscService] [API:4] getBirdeyeTopTraders: ${contractAddress}, timeframe=24h, limit=10`);
+        console.log(`[BscService] [API:5] getMoralisTokenAnalytics: ${contractAddress}`);
+        
         // 1. 并行获取所有原始数据
         const results = await Promise.allSettled([
             getMoralisTokenData(contractAddress),      // Index 0
