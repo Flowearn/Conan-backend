@@ -12,7 +12,8 @@
     "ethers": "^6.13.5",
     "express": "^4.21.2",
     "node-cache": "^5.1.2",
-    "serverless-http": "^3.2.0"
+    "serverless-http": "^3.2.0",
+    "ws": "^8.18.1"
   },
   "devDependencies": {
     "serverless": "^3.40.0",
