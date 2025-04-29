@@ -10,7 +10,6 @@ const {
 const {
     getMoralisTokenData, // 使用原始函数名
     getMoralisTokenMetadata, 
-    getMoralisTokenHolders,
     getMoralisTokenHolderStats,
     getMoralisTokenAnalytics
 } = moralisService;
@@ -38,19 +37,17 @@ async function getBscTokenDataBundle(address) {
         console.log('[BscService] Calling Moralis/Birdeye APIs with following parameters:');
         console.log(`[BscService] [API:0] getMoralisTokenData: ${contractAddress}`);
         console.log(`[BscService] [API:1] getMoralisTokenMetadata: ${contractAddress}`);
-        console.log(`[BscService] [API:2] getMoralisTokenHolders: ${contractAddress}, chain=bsc, limit=100, offset=0`);
-        console.log(`[BscService] [API:3] getMoralisTokenHolderStats: ${contractAddress}`);
-        console.log(`[BscService] [API:4] getBirdeyeTopTraders: ${contractAddress}, timeframe=24h, limit=10`);
-        console.log(`[BscService] [API:5] getMoralisTokenAnalytics: ${contractAddress}`);
+        console.log(`[BscService] [API:2] getMoralisTokenHolderStats: ${contractAddress}`);
+        console.log(`[BscService] [API:3] getBirdeyeTopTraders: ${contractAddress}, timeframe=24h, limit=10`);
+        console.log(`[BscService] [API:4] getMoralisTokenAnalytics: ${contractAddress}`);
         
         // 1. 并行获取所有原始数据
         const results = await Promise.allSettled([
             getMoralisTokenData(contractAddress),      // Index 0
             getMoralisTokenMetadata(contractAddress),  // Index 1
-            getMoralisTokenHolders(contractAddress, 'bsc', 100, 0), // Index 2 - 修改参数顺序以匹配函数签名
-            getMoralisTokenHolderStats(contractAddress), // Index 3
-            getBirdeyeTopTraders(contractAddress, '24h', 10, 0, 'volume', 'desc'), // Index 4 - 使用适当的参数
-            getMoralisTokenAnalytics(contractAddress)  // Index 5
+            getMoralisTokenHolderStats(contractAddress), // Index 2
+            getBirdeyeTopTraders(contractAddress, '24h', 10, 0, 'volume', 'desc'), // Index 3
+            getMoralisTokenAnalytics(contractAddress)  // Index 4
         ]);
         console.log(`[HANG DEBUG] After Promise.allSettled`); // 3. API 调用后
 
@@ -93,62 +90,47 @@ async function getBscTokenDataBundle(address) {
         
         // --- Start: PRECISE Replacement Extraction Logic for Indices 2, 3, 4 ---
 
-        // 处理 API 2: Moralis Token Holders
-        let moralisHolders = []; // Default empty array
-        const ownersResult = results[2];
-        if (ownersResult.status === 'fulfilled' && ownersResult.value?.result && Array.isArray(ownersResult.value.result)) {
-            // Access the array directly from the 'result' key based on Moralis raw response log
-            moralisHolders = ownersResult.value.result;
-            console.log(`[BscService] [API:2] Successfully extracted ${moralisHolders.length} Moralis Owners from value.result`);
-        } else {
-             console.warn(`[BscService] [API:2] Failed to get or extract Moralis Owners. Status: ${ownersResult.status}. Reason/Error:`, ownersResult.reason || ownersResult.value || 'Expected value.result array not found');
-        }
-        // Keep the slice for top 10 after this block
-        const topHoldersRaw = moralisHolders.slice(0, 10);
-
-
-        // 处理 API 3: Moralis Holder Stats
+        // 处理 API 2: Moralis Holder Stats
         let moralisHolderStatsRaw = null; // Default null
-        const statsResult = results[3];
+        const statsResult = results[2];
         // Access the stats object from the 'data' key based on Moralis raw response log
         if (statsResult.status === 'fulfilled' && typeof statsResult.value?.data === 'object' && statsResult.value.data !== null) {
             moralisHolderStatsRaw = statsResult.value.data;
             // Also check if 'success' flag exists within the response value itself, if provided by the service wrapper
             if (statsResult.value.success === false) {
-                 console.warn(`[BscService] [API:3] Moralis Holder Stats API reported success:false. Error:`, statsResult.value.error || 'Unknown error structure');
+                 console.warn(`[BscService] [API:2] Moralis Holder Stats API reported success:false. Error:`, statsResult.value.error || 'Unknown error structure');
                  moralisHolderStatsRaw = null; // Ensure null if success is false
             } else {
-                 console.log(`[BscService] [API:3] Successfully extracted Holder Stats object with totalHolders: ${moralisHolderStatsRaw?.totalHolders}`);
+                 console.log(`[BscService] [API:2] Successfully extracted Holder Stats object with totalHolders: ${moralisHolderStatsRaw?.totalHolders}`);
             }
         } else {
-            console.warn(`[BscService] [API:3] Failed to get or extract Moralis Holder Stats. Status: ${statsResult.status}. Reason/Error:`, statsResult.reason || statsResult.value || 'Expected value.data object not found');
+            console.warn(`[BscService] [API:2] Failed to get or extract Moralis Holder Stats. Status: ${statsResult.status}. Reason/Error:`, statsResult.reason || statsResult.value || 'Expected value.data object not found');
         }
 
 
-        // 处理 API 4: Birdeye Top Traders
+        // 处理 API 3: Birdeye Top Traders
         let birdeyeTopTraders = []; // Default empty array
-        const tradersResult = results[4];
+        const tradersResult = results[3];
         // Access the items array from 'data.items' key based on Birdeye raw response log
         if (tradersResult.status === 'fulfilled' && tradersResult.value?.success && Array.isArray(tradersResult.value.data?.items)) {
             birdeyeTopTraders = tradersResult.value.data.items;
-            console.log(`[BscService] [API:4] Successfully extracted ${birdeyeTopTraders.length} Birdeye Top Traders from value.data.items`);
+            console.log(`[BscService] [API:3] Successfully extracted ${birdeyeTopTraders.length} Birdeye Top Traders from value.data.items`);
         } else {
-             console.warn(`[BscService] [API:4] Failed to get or extract Birdeye Top Traders. Status: ${tradersResult.status}. Reason/Error:`, tradersResult.reason || tradersResult.value?.error || 'Expected value.data.items array not found');
+             console.warn(`[BscService] [API:3] Failed to get or extract Birdeye Top Traders. Status: ${tradersResult.status}. Reason/Error:`, tradersResult.reason || tradersResult.value?.error || 'Expected value.data.items array not found');
         }
 
         // --- End: PRECISE Replacement Extraction Logic ---
 
-        // Keep extraction for results[0], results[1], results[5] as they seem to work
+        // Keep extraction for results[0], results[1], results[4] as they seem to work
         // Assuming metadata is the first element if API returns an array:
         const moralisTokenDataResult = results[0].status === 'fulfilled' && results[0].value?.success ? results[0].value : null;
         const moralisMetadataResult = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value[0] : null;
-        const moralisAnalytics = results[5].status === 'fulfilled' && results[5].value?.success ? results[5].value : null;
+        const moralisAnalytics = results[4].status === 'fulfilled' && results[4].value?.success ? results[4].value : null;
 
         // Assign to rawData (make sure names match downstream use)
         rawData = { 
             moralisTokenData: moralisTokenData || moralisTokenDataResult, 
             moralisMetadata: moralisMetadataResult, 
-            moralisHolders: moralisHolders, 
             moralisHolderStats: moralisHolderStatsRaw, 
             birdeyeTopTraders: birdeyeTopTraders, 
             moralisAnalytics 
@@ -200,89 +182,6 @@ async function getBscTokenDataBundle(address) {
         
         standardizedData.tokenOverview = overview;
         console.log(`[HANG DEBUG] After tokenOverview standardization`); // 8. tokenOverview 后
-
-        console.log(`[HANG DEBUG] Before top10Holders standardization`); // 9. top10Holders 前
-        // 3b. 标准化 top10Holders - 改进格式化逻辑和错误处理
-        console.log(`[BscService] Processing ${topHoldersRaw.length} top holders with price: ${price}, decimals: ${decimals}`);
-        
-        // 确保 price 和 decimals 值正确且类型匹配
-        const validPrice = typeof price === 'number' && !isNaN(price) ? price : 0;
-        const validDecimals = !isNaN(decimals) ? decimals : 18;
-        
-        console.log(`[BscService] Using validPrice: ${validPrice}, validDecimals: ${validDecimals} for holders calculation`);
-        
-        standardizedData.top10Holders = topHoldersRaw.map((h, index) => { 
-            let qF = 'N/A', vF = 'N/A', qR = BigInt(0); 
-            try {
-                // 获取地址
-                const holderAddress = h?.owner_address || h?.address || h?.TokenHolderAddress || 'N/A'; 
-                // 获取余额
-                const balance = h?.balance || h?.amount || h?.TokenHolderQuantity || '0'; 
-                
-                console.log(`[BscService] Holder #${index+1}: ${holderAddress.substring(0, 8)}..., balance: ${balance}`);
-                
-                if (holderAddress !== 'N/A') {
-                    // 使用 BigInt 处理 balance - 更加健壮的解析逻辑
-                    try {
-                        // 确保 balance 是有效字符串
-                        const cleanBalance = String(balance).replace(/[^\d]/g, '');
-                        qR = BigInt(cleanBalance || '0');
-                        
-                        // 格式化代币数量 - 使用安全的 formatTokenAmount
-                        try {
-                            qF = formatTokenAmount(cleanBalance, validDecimals, 4);
-                            console.log(`[BscService] Formatted quantity for ${holderAddress.substring(0, 8)}...: ${qF}`);
-                        } catch(fmtErr) {
-                            console.error(`[BscService] Error in formatTokenAmount:`, fmtErr);
-                            qF = 'Format Error';
-                        }
-                        
-                        // 计算美元价值
-                        if (validPrice > 0) {
-                            try {
-                                // 安全计算
-                                const divisor = Math.pow(10, validDecimals);
-                                const balanceNumber = Number(qR) / divisor;
-                                const usdValue = balanceNumber * validPrice;
-                                
-                                // 使用 formatCurrency 格式化
-                                try {
-                                    vF = formatCurrency(usdValue);
-                                    console.log(`[BscService] USD value for ${holderAddress.substring(0, 8)}...: ${vF}`);
-                                } catch(fmtErr) {
-                                    console.error(`[BscService] Error in formatCurrency:`, fmtErr);
-                                    vF = `$${usdValue.toFixed(2)}`;
-                                }
-                            } catch(calcErr) {
-                                console.error(`[BscService] Error calculating USD value:`, calcErr);
-                                vF = '$0.00';
-                            }
-                        } else {
-                            console.log(`[BscService] Price is zero or invalid: ${validPrice}`);
-                            vF = '$0.00';
-                        }
-                    } catch(parseErr) {
-                        console.error(`[BscService] Error parsing balance (${balance}):`, parseErr);
-                        qF = '0';
-                        vF = '$0.00';
-                    }
-                } else {
-                    console.log(`[BscService] Invalid holder address: ${holderAddress}`);
-                }
-            } catch(e) {
-                console.error("[BscService] Error processing holder:", e);
-            } 
-            
-            return {
-                TokenHolderAddress: h?.owner_address || h?.address || h?.TokenHolderAddress || 'N/A',
-                TokenHolderQuantity: h?.balance || h?.amount || h?.TokenHolderQuantity || '0',
-                TokenHolderQuantityFormatted: qF,
-                TokenHolderUsdValueFormatted: vF
-            };
-        });
-        
-        console.log(`[BscService] Processed ${standardizedData.top10Holders.length} top holders`);
-        console.log(`[HANG DEBUG] After top10Holders standardization`); // 10. top10Holders 后
 
         console.log("[HANG DEBUG] Before topTraders standardization"); // 修复：添加正确终止的模板字符串
         
