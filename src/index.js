@@ -74,8 +74,9 @@ const {
   generateBasicAnalysis
 } = require('./services/aiAnalysisService');
 
-// Import BSC Service
+// Import Chain Services
 const BscService = require('./services/BscService');
+const SolanaService = require('./services/SolanaService');
 
 // 检查formatCurrencySuffix是否正确导入
 console.log('formatCurrencySuffix imported successfully:', !!formatCurrencySuffix);
@@ -210,9 +211,18 @@ app.get('/api/test-birdeye', async (req, res) => {
 app.get('/api/token-data/:chain/:address', async (req, res) => {
   const { chain, address } = req.params;
   const lowerCaseChain = chain.toLowerCase();
-  let responseData = null; // 重命名以区分 Service 返回的原始数据
+  const cacheKey = `tokenData:${lowerCaseChain}:${address}`;
+  let responseData = null;
 
-  console.log(`[API Handler] Request received: ${lowerCaseChain} - ${address}`); // 添加日志
+  console.log(`[API Handler] Request received: ${lowerCaseChain} - ${address}`);
+
+  // --- 检查缓存 ---
+  const cachedData = myCache.get(cacheKey);
+  if (cachedData) {
+    console.log(`[API Handler] Cache hit for ${cacheKey}`);
+    return res.json({ success: true, data: cachedData, source: 'cache' });
+  }
+  console.log(`[API Handler] Cache miss for ${cacheKey}. Fetching fresh data...`);
 
   try {
     if (lowerCaseChain === 'bsc') {
@@ -220,10 +230,9 @@ app.get('/api/token-data/:chain/:address', async (req, res) => {
       responseData = await BscService.getBscTokenDataBundle(address);
       // ------------------------
     } else if (lowerCaseChain === 'solana') {
-      // TODO: 未来在这里调用 Solana Service
-      console.warn(`[API Handler] Solana service call not implemented yet for ${address}`);
-      // responseData = await SolanaService.getSolanaTokenDataBundle(address);
-      return res.status(501).json({ error: 'Solana data service not implemented yet' });
+      // --- 调用 Solana Service ---
+      responseData = await SolanaService.getSolanaTokenDataBundle(address);
+      // --------------------------
     } else {
       // 不支持的链
       console.warn(`[API Handler] Unsupported chain requested: ${lowerCaseChain}`);
@@ -232,13 +241,18 @@ app.get('/api/token-data/:chain/:address', async (req, res) => {
 
     // --- 处理 Service 返回结果 ---
     if (responseData) {
-       console.log(`[API Handler] Data bundle retrieved successfully for ${lowerCaseChain}:${address}`);
-       // **重要:** 通常我们将最终数据包装在一个 data 字段中返回给前端
-       return res.status(200).json({ data: responseData });
+      console.log(`[API Handler] Data bundle retrieved successfully for ${lowerCaseChain}:${address}`);
+      
+      // --- 缓存标准化后的数据 ---
+      console.log(`[API Handler] Setting cache for ${cacheKey}`);
+      myCache.set(cacheKey, responseData);
+      
+      // **重要:** 通常我们将最终数据包装在一个 data 字段中返回给前端
+      return res.json({ success: true, data: responseData, source: 'api' });
     } else {
-       // 如果 Service 返回 null，表示内部出错或未找到数据
-       console.log(`[API Handler] Service returned null for ${lowerCaseChain}:${address}. Sending 404.`);
-       return res.status(404).json({ error: 'Data not found or internal service error.' });
+      // 如果 Service 返回 null，表示内部出错或未找到数据
+      console.log(`[API Handler] Service returned null for ${lowerCaseChain}:${address}. Sending 404.`);
+      return res.status(404).json({ error: 'Data not found or internal service error.' });
     }
     // ------------------------
 
