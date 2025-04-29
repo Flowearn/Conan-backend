@@ -1,18 +1,130 @@
-const birdeyeService = require('./birdeyeService');
+const axios = require('axios');
 const {
     formatCurrency, safeCurrencySuffix, safeNumberSuffix, formatTokenAmount
     // 确保导入所有需要的 formatters
 } = require('../utils/formatters');
 
-// --- 导入需要的 Solana Service 函数 ---
-const {
-    getSolanaTokenMetadataFromBirdeye,
-    getSolanaMarketData,
-    getSolanaHolders,
-    getSolanaTopTraders,
-    getSolanaTradeData
-} = birdeyeService;
-// ------------------------------------
+/**
+ * 从Birdeye API获取Solana代币元数据
+ * @param {string} address - Solana代币地址
+ * @returns {Promise<Object>} - 代币元数据
+ */
+async function _fetchSolanaTokenMetadata(address) {
+    try {
+        const response = await axios.get(`https://api.birdeye.so/defi/token_metadata`, {
+            params: {
+                address: address
+            },
+            headers: {
+                'X-API-KEY': process.env.BIRDEYE_API_KEY
+            },
+            timeout: 30000 // 30秒超时
+        });
+        return response.data.data;
+    } catch (error) {
+        console.error(`[SolanaService] Error fetching Solana token metadata for ${address}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * 从Birdeye API获取Solana市场数据
+ * @param {string} address - Solana代币地址
+ * @returns {Promise<Object>} - 市场数据
+ */
+async function _fetchSolanaMarketData(address) {
+    try {
+        const response = await axios.get(`https://api.birdeye.so/defi/token_market_data`, {
+            params: {
+                address: address
+            },
+            headers: {
+                'X-API-KEY': process.env.BIRDEYE_API_KEY
+            },
+            timeout: 30000 // 30秒超时
+        });
+        return response.data.data;
+    } catch (error) {
+        console.error(`[SolanaService] Error fetching Solana market data for ${address}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * 从Birdeye API获取Solana持有者信息
+ * @param {string} address - Solana代币地址
+ * @param {number} limit - 返回数量限制，默认100
+ * @param {number} offset - 偏移量，默认0
+ * @returns {Promise<Array>} - 持有者列表
+ */
+async function _fetchSolanaHolders(address, limit = 100, offset = 0) {
+    try {
+        const response = await axios.get(`https://api.birdeye.so/defi/token_holders`, {
+            params: {
+                address: address,
+                limit: limit,
+                offset: offset
+            },
+            headers: {
+                'X-API-KEY': process.env.BIRDEYE_API_KEY
+            },
+            timeout: 30000 // 30秒超时
+        });
+        return response.data.data.items || [];
+    } catch (error) {
+        console.error(`[SolanaService] Error fetching Solana holders for ${address}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * 从Birdeye API获取Solana顶级交易者数据
+ * @param {string} address - Solana代币地址
+ * @returns {Promise<Array>} - 顶级交易者列表
+ */
+async function _fetchSolanaTopTraders(address) {
+    try {
+        const response = await axios.get(`https://api.birdeye.so/defi/top_traders`, {
+            params: {
+                address: address,
+                time_frame: '24h',
+                limit: 10,
+                offset: 0
+            },
+            headers: {
+                'X-API-KEY': process.env.BIRDEYE_API_KEY
+            },
+            timeout: 30000 // 30秒超时
+        });
+        return response.data.data.items || [];
+    } catch (error) {
+        console.error(`[SolanaService] Error fetching Solana top traders for ${address}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * 从Birdeye API获取Solana交易数据
+ * @param {string} address - Solana代币地址
+ * @returns {Promise<Object>} - 交易数据
+ */
+async function _fetchSolanaTradeData(address) {
+    try {
+        const response = await axios.get(`https://api.birdeye.so/defi/token_trade_data`, {
+            params: {
+                address: address
+            },
+            headers: {
+                'X-API-KEY': process.env.BIRDEYE_API_KEY
+            },
+            timeout: 30000 // 30秒超时
+        });
+        return response.data.data;
+    } catch (error) {
+        console.error(`[SolanaService] Error fetching Solana trade data for ${address}:`, error.message);
+        throw error;
+    }
+}
 
 /**
  * 获取并标准化给定 Solana 地址的完整代币数据包。
@@ -28,11 +140,11 @@ async function getSolanaTokenDataBundle(address) {
     try {
         // 1. 并行获取所有 Solana 原始数据
         const results = await Promise.allSettled([
-            getSolanaTokenMetadataFromBirdeye(contractAddress),      // Index 0
-            getSolanaMarketData(contractAddress),                  // Index 1
-            getSolanaHolders(contractAddress, 100, 0),             // Index 2
-            getSolanaTopTraders(contractAddress),                  // Index 3
-            getSolanaTradeData(contractAddress)                    // Index 4
+            _fetchSolanaTokenMetadata(contractAddress),      // Index 0
+            _fetchSolanaMarketData(contractAddress),         // Index 1
+            _fetchSolanaHolders(contractAddress, 100, 0),    // Index 2
+            _fetchSolanaTopTraders(contractAddress),         // Index 3
+            _fetchSolanaTradeData(contractAddress)           // Index 4
         ]);
 
         // --- 可选：添加详细日志记录 results ---

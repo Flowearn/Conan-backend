@@ -35,17 +35,7 @@ if (result.error) {
   console.log('MORALIS_API_KEY:', process.env.MORALIS_API_KEY ? `...${process.env.MORALIS_API_KEY.slice(-5)}` : 'Not set');
   console.log('XAI_API_KEY:', process.env.XAI_API_KEY ? `...${process.env.XAI_API_KEY.slice(-5)}` : 'Not set');
 }
-// Import Birdeye service
-const { 
-  testBirdeyeConnection, 
-  getBirdeyeTopTraders,
-  // 导入Solana相关函数
-  getSolanaTokenMetadataFromBirdeye,
-  getSolanaMarketData,
-  getSolanaHolders,
-  getSolanaTopTraders,
-  getSolanaTradeData
-} = require('./services/birdeyeService');
+
 // Import formatters
 const { 
   formatTimestamp, 
@@ -57,20 +47,11 @@ const {
   safeCurrencySuffix,
   safeNumberSuffix
 } = require('./utils/formatters');
-const { 
-  getMoralisTokenOwners, 
-  getMoralisTokenHolderStats, 
-  getMoralisTokenData, 
-  // getMoralisPairOhlcv, // 价格图表功能已被移除
-  getMoralisTokenAnalytics,
-  getMoralisTokenMetadata,
-  getMoralisTokenHolders
-} = require('./services/moralisService');
+
 // Import AI analysis service
 const { 
   generateAnalysis, 
   generateGrokAnalysis, 
-  
   generateBasicAnalysis
 } = require('./services/aiAnalysisService');
 
@@ -193,15 +174,13 @@ app.get('/', (req, res) => {
 app.get('/api/test-birdeye', async (req, res) => {
   console.log(`Received request for /api/test-birdeye`);
   try {
-    const result = await testBirdeyeConnection();
-    // 根据服务层返回的 success 状态决定响应码
-    if (result.success) {
-       res.json(result);
-    } else {
-       res.status(result.statusCode || 500).json(result); 
-    }
+    // 由于birdeyeService已被移除，返回未实现信息
+    res.status(501).json({ 
+      success: false, 
+      error: 'Service unavailable', 
+      details: 'birdeyeService has been removed, this endpoint is no longer available' 
+    });
   } catch (error) {
-     // 处理路由本身的意外错误
      console.error("Unexpected error in /api/test-birdeye route:", error);
      res.status(500).json({ success: false, error: 'Internal server error in test route', details: error.message });
   }
