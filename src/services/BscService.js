@@ -83,7 +83,7 @@ async function _fetchMoralisPrice(address) {
     const apiKey = process.env.MORALIS_API_KEY;
     if (!apiKey) {
         console.error("[BscService:_fetchMoralisPrice] Moralis API Key not found in environment variables.");
-        return null; // 或者抛出错误
+        return null;
     }
     const url = `https://deep-index.moralis.io/api/v2.2/erc20/${address}/price`;
     console.log(`[BscService:_fetchMoralisPrice] Fetching price for ${address}`);
@@ -97,10 +97,10 @@ async function _fetchMoralisPrice(address) {
             timeout: 30000 // 30秒超时
         });
         console.log(`[BscService:_fetchMoralisPrice] Successfully fetched price for ${address}`);
-        return response.data; // 直接返回数据部分
+        return response.data;
     } catch (error) {
         console.error(`[BscService:_fetchMoralisPrice] Error fetching Moralis price for ${address}:`, error.response?.status, error.message);
-        return null; // 返回 null 或根据需要处理错误
+        return null;
     }
 }
 
@@ -120,16 +120,16 @@ async function _fetchBirdeyeTopTraders(address, time_frame = '24h', limit = 10, 
         console.error("[BscService:_fetchBirdeyeTopTraders] Birdeye API Key not found.");
         return null;
     }
-    const url = 'https://public-api.birdeye.so/defi/v2/tokens/top_traders'; // 使用 V2 URL
+    const url = 'https://public-api.birdeye.so/defi/v2/tokens/top_traders';
     console.log(`[BscService:_fetchBirdeyeTopTraders] Fetching top traders for ${address}`);
     try {
         const response = await axios.get(url, {
             headers: {
                 'accept': 'application/json',
                 'X-API-KEY': apiKey,
-                'x-chain': 'bsc' // 明确指定 BSC 链
+                'x-chain': 'bsc'
             },
-            params: { // 将函数参数映射到 query params
+            params: {
                 address: address,
                 time_frame: time_frame,
                 limit: limit,
@@ -140,14 +140,13 @@ async function _fetchBirdeyeTopTraders(address, time_frame = '24h', limit = 10, 
             timeout: 30000 // 30秒超时
         });
         console.log(`[BscService:_fetchBirdeyeTopTraders] Successfully fetched top traders for ${address}`);
-        return response.data; // 返回响应的数据部分
+        return response.data;
     } catch (error) {
         console.error(`[BscService:_fetchBirdeyeTopTraders] Error fetching Birdeye top traders for ${address}:`, error.response?.status, error.message);
-        // 可以在这里记录更详细的错误，比如 error.response?.data
         if (error.response?.status === 521) {
              console.warn('[BscService:_fetchBirdeyeTopTraders] Birdeye server returned 521 (Web server is down). Returning empty list.');
         }
-        return null; // 返回 null 或根据需要处理错误
+        return null;
     }
 }
 
@@ -157,22 +156,13 @@ async function _fetchBirdeyeTopTraders(address, time_frame = '24h', limit = 10, 
  * @returns {Promise<object|null>} 标准化后的数据对象，如果出错则返回 null。
  */
 async function getBscTokenDataBundle(address) {
-    console.log(`[HANG DEBUG] === Entering getBscTokenDataBundle for ${address} ===`); // 1. 函数入口
     console.log(`[BscService] Getting data bundle for BSC address: ${address}`);
-    const contractAddress = address; // 或进行校验
+    const contractAddress = address;
     let rawData = {};
     let standardizedData = {};
 
     try {
-        console.log(`[HANG DEBUG] Before Promise.allSettled`); // 2. API 调用前
-        
-        // 添加更详细的API调用日志
-        console.log('[BscService] Calling Moralis/Birdeye APIs with following parameters:');
-        console.log(`[BscService] [API:0] _fetchMoralisMetadata: ${contractAddress}`);
-        console.log(`[BscService] [API:1] _fetchMoralisHolderStats: ${contractAddress}`);
-        console.log(`[BscService] [API:2] _fetchBirdeyeTopTraders: ${contractAddress}, timeframe=24h, limit=10`);
-        console.log(`[BscService] [API:3] _fetchMoralisAnalytics: ${contractAddress}`);
-        console.log(`[BscService] [API:4] _fetchMoralisPrice: ${contractAddress}`);
+        console.log('[BscService] Calling Moralis/Birdeye APIs...');
         
         // 1. 并行获取所有原始数据
         const results = await Promise.allSettled([
@@ -182,87 +172,54 @@ async function getBscTokenDataBundle(address) {
             _fetchMoralisAnalytics(contractAddress),      // 新 Index 3
             _fetchMoralisPrice(contractAddress)           // 新 Index 4
         ]);
-        console.log(`[HANG DEBUG] After Promise.allSettled`); // 3. API 调用后
 
-        // --- 此处添加详细日志记录 results (可选，但推荐) ---
-        console.log("[BscService] Raw API call results status & values:");
-        results.forEach((result, index) => {
-            console.log(`--- Result Index [${index}] ---`);
-            console.log(`Status: ${result.status}`);
-            if (result.status === 'fulfilled') {
-                try {
-                    // Log the fulfilled value, using JSON.stringify for complex objects
-                    console.log(`Value:`, JSON.stringify(result.value, null, 2));
-                } catch (e) {
-                    // Fallback for non-JSON serializable values or circular structures
-                    console.log(`Value (raw):`, result.value);
-                }
-            } else if (result.status === 'rejected') {
-                // Log the reason for rejection
-                console.error(`Reason:`, result.reason);
-            }
-            console.log(`---------------------------`);
-        });
-
-        console.log(`[HANG DEBUG] Before Robust Extraction`); // 4. 原始数据提取前
-        // 2. 安全地提取原始数据 (使用健壮逻辑)
+        // 2. 安全地提取原始数据
         
         // 提取 moralisMetadata (新 Index 0)
-        const bsc_moralis_metadata = results[0].status === 'fulfilled' ? results[0].value?.[0] : null; // Metadata API 的 data 是一个数组
-        console.log(`[BscService] [API:0] Extracted bsc_moralis_metadata:`, bsc_moralis_metadata ? 'Success' : 'Null');
+        const bsc_moralis_metadata = results[0].status === 'fulfilled' ? results[0].value?.[0] : null;
         
         // 提取 moralisHolderStats (新 Index 1)
-        const bsc_moralis_holderStats = results[1].status === 'fulfilled' ? results[1].value : null; // 假设 /holders API 的 data 直接是统计对象
-        console.log(`[BscService] [API:1] Extracted bsc_moralis_holderStats:`, bsc_moralis_holderStats ? 'Success' : 'Null');
+        const bsc_moralis_holderStats = results[1].status === 'fulfilled' ? results[1].value : null;
 
         // 提取 birdeyeTopTraders (新 Index 2)
-        let bsc_birdeye_topTraders = []; // 默认空数组
-        if (results[2].status === 'fulfilled' && results[2].value?.data?.items) { // 检查嵌套结构 data.items
+        let bsc_birdeye_topTraders = [];
+        if (results[2].status === 'fulfilled' && results[2].value?.data?.items) {
              if (Array.isArray(results[2].value.data.items)) {
                  bsc_birdeye_topTraders = results[2].value.data.items;
-                 console.log('[BscService] [API:2] Extracted Birdeye Top Traders: Success');
+                 console.log('[BscService] Extracted Birdeye Top Traders: Success');
              } else {
-                 // API 成功返回，但 data.items 不是数组
                  console.warn("[BscService] Birdeye traders value.data.items is not an array:", results[2].value);
              }
         } else if (results[2].status === 'rejected') {
-            // API 调用失败 (例如之前的 521 错误)
             console.error("[BscService] Birdeye traders rejected:", results[2].reason?.message || results[2].reason);
         } else if (results[2].status === 'fulfilled') {
-             // API 调用成功，但响应结构不符合预期 (没有 data.items)
              console.warn("[BscService] Birdeye traders fulfilled but data.items not found:", results[2].value);
         }
 
         // 提取 moralisAnalytics (新 Index 3)
-        const bsc_moralis_analytics = results[3].status === 'fulfilled' ? results[3].value : null; // 假设 /analytics API 的 data 直接是分析对象
-        console.log(`[BscService] [API:3] Extracted bsc_moralis_analytics:`, bsc_moralis_analytics ? 'Success' : 'Null');
+        const bsc_moralis_analytics = results[3].status === 'fulfilled' ? results[3].value : null;
 
         // 提取 moralisPriceData (新 Index 4)
         const bsc_moralis_priceData = results[4].status === 'fulfilled' ? results[4].value : null;
-        if (results[4].status === 'fulfilled' && results[4].value) {
-            console.log('[BscService] [API:4] Extracted bsc_moralis_priceData: Success');
-        } else {
-            console.warn('[BscService] [API:4] Failed to extract bsc_moralis_priceData:', results[4].reason || 'API call failed');
+        if (results[4].status === 'rejected') {
+            console.warn('[BscService] Failed to extract bsc_moralis_priceData:', results[4].reason || 'API call failed');
         }
 
         // 更新 rawData 对象
         rawData = {
-            bsc_moralis_metadata,    // 新 Index 0
-            bsc_moralis_holderStats, // 新 Index 1
-            bsc_birdeye_topTraders,  // 新 Index 2
-            bsc_moralis_analytics,   // 新 Index 3
-            bsc_moralis_priceData    // 新 Index 4
+            bsc_moralis_metadata,
+            bsc_moralis_holderStats,
+            bsc_birdeye_topTraders,
+            bsc_moralis_analytics,
+            bsc_moralis_priceData
         };
-        console.log("[BscService] Raw BSC data extracted after precise fixes.");
         
-        console.log(`[HANG DEBUG] Before Standardization Logic`); // 6. 标准化开始前
         // 3. 执行数据标准化
         standardizedData = {};
 
-        console.log(`[HANG DEBUG] Before tokenOverview standardization`); // 7. tokenOverview 前
         // 3a. 标准化 tokenOverview
         const overview = {};
-        const price = bsc_moralis_priceData?.usdPrice ?? 0; // 使用 Price API 的 usdPrice，失败则为 0
+        const price = bsc_moralis_priceData?.usdPrice ?? 0;
         const decimals = parseInt(bsc_moralis_metadata?.decimals ?? '18', 10);
         const circulatingSupply = bsc_moralis_metadata?.circulating_supply;
         
@@ -272,9 +229,9 @@ async function getBscTokenDataBundle(address) {
         overview.price = price ?? 0;
         overview.priceFormatted = formatCurrency(price);
         overview.priceChange24h = bsc_moralis_priceData?.['24hrPercentChange'] ?? null;
-        overview.liquidityFormatted = safeCurrencySuffix(bsc_moralis_priceData?.pairTotalLiquidityUsd); // 尝试使用 Price API 中的流动性数据
+        overview.liquidityFormatted = safeCurrencySuffix(bsc_moralis_priceData?.pairTotalLiquidityUsd);
         
-        let marketCap = bsc_moralis_metadata?.market_cap; // 优先使用元数据自带的
+        let marketCap = bsc_moralis_metadata?.market_cap;
         if ((!marketCap || marketCap === 'N/A') && circulatingSupply && typeof price === 'number' && price > 0 && !isNaN(decimals)) {
             try { 
                 const c = BigInt(String(circulatingSupply).split('.')[0]); 
@@ -292,7 +249,7 @@ async function getBscTokenDataBundle(address) {
             overview.marketCap = marketCap ?? 0;
             overview.marketCapFormatted = safeCurrencySuffix(marketCap);
         } else if (marketCap && marketCap !== 'N/A') {
-            overview.marketCap = parseFloat(marketCap) ?? 0; // 使用元数据中的值
+            overview.marketCap = parseFloat(marketCap) ?? 0;
             overview.marketCapFormatted = safeCurrencySuffix(overview.marketCap);
         } else {
             overview.marketCap = 0;
@@ -305,10 +262,7 @@ async function getBscTokenDataBundle(address) {
         overview.explorerUrl = bsc_moralis_metadata?.address ? `https://bscscan.com/token/${bsc_moralis_metadata.address}` : null;
         
         standardizedData.tokenOverview = overview;
-        console.log(`[HANG DEBUG] After tokenOverview standardization`); // 8. tokenOverview 后
 
-        console.log("[HANG DEBUG] Before topTraders standardization");
-        
         // 3c. 标准化 topTraders
         standardizedData.topTraders = bsc_birdeye_topTraders.map((trader) => {
             // 确保可以访问到 formatters.js 中的 safeCurrencySuffix 函数
@@ -351,45 +305,34 @@ async function getBscTokenDataBundle(address) {
                 }
             };
         });
-        console.log("[HANG DEBUG] After topTraders standardization");
 
         // 3d. 生成 holderStats 数据
-        console.log('[BscService] Mapping holder stats from raw object:', JSON.stringify(bsc_moralis_holderStats, null, 2));
         standardizedData.holderStats = {
-            // Use optional chaining (?.) and nullish coalescing (??) for safety
             totalHolders: bsc_moralis_holderStats?.totalHolders ?? null,
             holderChange: bsc_moralis_holderStats?.holderChange ?? { '5min':{change:null,changePercent:null},'1h':{change:null,changePercent:null},'6h':{change:null,changePercent:null},'24h':{change:null,changePercent:null},'3d':{change:null,changePercent:null},'7d':{change:null,changePercent:null},'30d':{change:null,changePercent:null} },
             holderSupply: bsc_moralis_holderStats?.holderSupply ?? { top10:{supplyPercent:null},top25:{supplyPercent:null},top50:{supplyPercent:null},top100:{supplyPercent:null} },
             holderDistribution: bsc_moralis_holderStats?.holderDistribution ?? { whales:0, dolphins:0, fish:0, shrimps:0, sharks: 0, octopus: 0, crabs: 0 },
             holdersByAcquisition: bsc_moralis_holderStats?.holdersByAcquisition ?? { swap:null, transfer:null, airdrop:null }
         };
-        console.log('[BscService] Final standardized holderStats object after fix:', JSON.stringify(standardizedData.holderStats, null, 2));
         
         // 3e. 标准化 tokenAnalytics
-        console.log("[HANG DEBUG] Before tokenAnalytics standardization");
         if (bsc_moralis_analytics) {
             standardizedData.tokenAnalytics = {
-                totalBuyers: bsc_moralis_analytics.totalBuyers ?? {}, // 直接使用 API 返回的对象
-                totalSellers: bsc_moralis_analytics.totalSellers ?? {}, // 直接使用 API 返回的对象
-                totalBuys: bsc_moralis_analytics.totalBuys ?? {},       // 直接使用 API 返回的对象
-                totalSells: bsc_moralis_analytics.totalSells ?? {},     // 直接使用 API 返回的对象
-                totalBuyVolume: bsc_moralis_analytics.totalBuyVolume ?? {}, // 直接使用 API 返回的对象 (或用 safeCurrencySuffix 格式化)
-                totalSellVolume: bsc_moralis_analytics.totalSellVolume ?? {},// 直接使用 API 返回的对象 (或用 safeCurrencySuffix 格式化)
-                totalLiquidityUsd: bsc_moralis_analytics.totalLiquidityUsd ?? null, // 直接使用 API 返回的值
-                totalFullyDilutedValuation: bsc_moralis_analytics.totalFullyDilutedValuation ?? null // 直接使用 API 返回的值
-                // 可以添加格式化后的字段，例如：
-                // totalBuyVolumeFormatted: safeCurrencySuffix(bsc_moralis_analytics.totalBuyVolume?.['24h']), // 示例：格式化24h购买量
-                // totalSellVolumeFormatted: safeCurrencySuffix(bsc_moralis_analytics.totalSellVolume?.['24h']), // 示例：格式化24h卖出量
+                totalBuyers: bsc_moralis_analytics.totalBuyers ?? {},
+                totalSellers: bsc_moralis_analytics.totalSellers ?? {},
+                totalBuys: bsc_moralis_analytics.totalBuys ?? {},
+                totalSells: bsc_moralis_analytics.totalSells ?? {},
+                totalBuyVolume: bsc_moralis_analytics.totalBuyVolume ?? {},
+                totalSellVolume: bsc_moralis_analytics.totalSellVolume ?? {},
+                totalLiquidityUsd: bsc_moralis_analytics.totalLiquidityUsd ?? null,
+                totalFullyDilutedValuation: bsc_moralis_analytics.totalFullyDilutedValuation ?? null
             };
-            console.log("[BscService] Successfully standardized tokenAnalytics");
         } else {
-            standardizedData.tokenAnalytics = {}; // 如果 analytics 数据为空，则返回空对象
+            standardizedData.tokenAnalytics = {};
             console.warn("[BscService] bsc_moralis_analytics data was null, skipping standardization.");
         }
-        console.log("[HANG DEBUG] After tokenAnalytics standardization");
 
         // 3f. 标准化 metadata
-        console.log("[HANG DEBUG] Before metadata standardization");
         if (bsc_moralis_metadata) {
             standardizedData.metadata = {
                 address: bsc_moralis_metadata.address || contractAddress,
@@ -398,23 +341,21 @@ async function getBscTokenDataBundle(address) {
                 symbol: bsc_moralis_metadata.symbol || 'N/A',
                 totalSupply: bsc_moralis_metadata.total_supply ?? null,
                 fully_diluted_valuation: bsc_moralis_metadata.fully_diluted_valuation ?? null,
-                market_cap: bsc_moralis_metadata.market_cap ?? null, // 使用 metadata 中的 market_cap
+                market_cap: bsc_moralis_metadata.market_cap ?? null,
                 circulating_supply: bsc_moralis_metadata.circulating_supply ?? null,
                 verified_contract: bsc_moralis_metadata.verified_contract ?? null,
                 possible_spam: bsc_moralis_metadata.possible_spam ?? null,
                 categories: bsc_moralis_metadata.categories ?? [],
-                links: bsc_moralis_metadata.links ?? {}, // 直接使用 API 返回的 links 对象
-                explorerUrl: bsc_moralis_metadata.address ? `https://bscscan.com/token/${bsc_moralis_metadata.address}` : null // 从 metadata 地址生成
+                links: bsc_moralis_metadata.links ?? {},
+                explorerUrl: bsc_moralis_metadata.address ? `https://bscscan.com/token/${bsc_moralis_metadata.address}` : null
             };
-            console.log("[BscService] Successfully standardized metadata");
         } else {
-            standardizedData.metadata = {}; // 如果 metadata 数据为空，则返回空对象
+            standardizedData.metadata = {};
             console.warn("[BscService] bsc_moralis_metadata data was null, skipping standardization.");
         }
-        console.log("[HANG DEBUG] After metadata standardization");
         
         // Return the standardized data object
-        console.log(`[HANG DEBUG] End of getBscTokenDataBundle`); // 11. 函数结束
+        console.log(`[BscService] Completed data processing for ${address}`);
         return standardizedData;
     } catch (e) {
         console.error("[BscService] Error processing token data bundle:", e);
