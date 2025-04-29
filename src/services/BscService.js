@@ -91,156 +91,70 @@ async function getBscTokenDataBundle(address) {
             }
         }
         
+        // --- Start: PRECISE Replacement Extraction Logic for Indices 2, 3, 4 ---
+
         // 处理 API 2: Moralis Token Holders
-        let moralisHolders = []; 
-        const holderResult = results[2]; 
-        if (holderResult?.status === 'rejected') { 
-            console.warn(`[BscService] [API:2] Token Holders API call rejected: ${holderResult.reason?.message || 'Unknown error'}`);
-        } else if (holderResult?.status === 'fulfilled') {
-            console.log(`[BscService] [API:2] Token Holders API response structure:`, 
-                typeof holderResult.value, 
-                holderResult.value ? Object.keys(holderResult.value) : 'null');
-                
-            if (holderResult.value?.success === false) {
-                console.warn(`[BscService] [API:2] Token Holders API call returned business error: ${holderResult.value?.error || 'Unknown error'}`);
-            } else if (holderResult.value?.success === true && holderResult.value?.owners && Array.isArray(holderResult.value.owners)) {
-                // 正确提取 getMoralisTokenOwners 返回的 owners 数组
-                moralisHolders = holderResult.value.owners;
-                console.log(`[BscService] [API:2] Successfully extracted ${moralisHolders.length} Token Holders from 'owners' field`);
-                if (moralisHolders.length > 0) {
-                    console.log(`[BscService] [API:2] First holder sample:`, JSON.stringify(moralisHolders[0], null, 2));
-                }
-            } else {
-                // 尝试备用方法 - 以防API结构变化
-                let extractedArray = null;
-                
-                if (holderResult.value?.result && Array.isArray(holderResult.value.result)) {
-                    extractedArray = holderResult.value.result;
-                    console.log(`[BscService] [API:2] Found holders in 'result' field: ${extractedArray.length} elements`);
-                } else if (Array.isArray(holderResult.value)) {
-                    extractedArray = holderResult.value;
-                    console.log(`[BscService] [API:2] Using value directly as holders array: ${extractedArray.length} elements`);
-                } else if (holderResult.value?.data && Array.isArray(holderResult.value.data)) {
-                    extractedArray = holderResult.value.data;
-                    console.log(`[BscService] [API:2] Found holders in 'data' field: ${extractedArray.length} elements`);
-                }
-                
-                if (extractedArray && extractedArray.length > 0) {
-                    moralisHolders = extractedArray;
-                    console.log(`[BscService] [API:2] Extracted ${moralisHolders.length} Token Holders using fallback method`);
-                } else {
-                    console.warn(`[BscService] [API:2] Failed to extract holders: unexpected response structure`);
-                    console.warn(`[BscService] [API:2] Response value:`, typeof holderResult.value);
-                    if (holderResult.value && typeof holderResult.value === 'object') {
-                        console.warn(`[BscService] [API:2] Response keys:`, Object.keys(holderResult.value));
-                    }
-                }
-            }
+        let moralisHolders = []; // Default empty array
+        const ownersResult = results[2];
+        if (ownersResult.status === 'fulfilled' && ownersResult.value?.result && Array.isArray(ownersResult.value.result)) {
+            // Access the array directly from the 'result' key based on Moralis raw response log
+            moralisHolders = ownersResult.value.result;
+            console.log(`[BscService] [API:2] Successfully extracted ${moralisHolders.length} Moralis Owners from value.result`);
+        } else {
+             console.warn(`[BscService] [API:2] Failed to get or extract Moralis Owners. Status: ${ownersResult.status}. Reason/Error:`, ownersResult.reason || ownersResult.value || 'Expected value.result array not found');
         }
-        
+        // Keep the slice for top 10 after this block
+        const topHoldersRaw = moralisHolders.slice(0, 10);
+
+
         // 处理 API 3: Moralis Holder Stats
-        let moralisHolderStatsRaw = null;
-        const holderStatsResult = results[3];
-        if (holderStatsResult?.status === 'rejected') {
-            console.warn(`[BscService] [API:3] Holder Stats API call rejected: ${holderStatsResult.reason?.message || 'Unknown error'}`);
-        } else if (holderStatsResult?.status === 'fulfilled') {
-            console.log(`[BscService] [API:3] Holder Stats API response structure:`, 
-                typeof holderStatsResult.value, 
-                holderStatsResult.value ? Object.keys(holderStatsResult.value) : 'null');
-                
-            if (holderStatsResult.value?.success === false) {
-                console.warn(`[BscService] [API:3] Holder Stats API call returned business error: ${holderStatsResult.value?.error || 'Unknown error'}`);
-            } else if (holderStatsResult.value?.success === true && holderStatsResult.value?.data) {
-                // 正确提取 getMoralisTokenHolderStats 返回的 data 字段
-                moralisHolderStatsRaw = holderStatsResult.value.data;
-                console.log(`[BscService] [API:3] Successfully extracted Holder Stats from 'data' field`);
-                console.log(`[BscService] [API:3] Total holders: ${moralisHolderStatsRaw?.totalHolders || 'undefined'}`);
+        let moralisHolderStatsRaw = null; // Default null
+        const statsResult = results[3];
+        // Access the stats object from the 'data' key based on Moralis raw response log
+        if (statsResult.status === 'fulfilled' && typeof statsResult.value?.data === 'object' && statsResult.value.data !== null) {
+            moralisHolderStatsRaw = statsResult.value.data;
+            // Also check if 'success' flag exists within the response value itself, if provided by the service wrapper
+            if (statsResult.value.success === false) {
+                 console.warn(`[BscService] [API:3] Moralis Holder Stats API reported success:false. Error:`, statsResult.value.error || 'Unknown error structure');
+                 moralisHolderStatsRaw = null; // Ensure null if success is false
             } else {
-                // 尝试备用方法 - 直接使用返回值
-                moralisHolderStatsRaw = holderStatsResult.value;
-                if (moralisHolderStatsRaw) {
-                    console.log(`[BscService] [API:3] Extracted Holder Stats using fallback method`);
-                    console.log(`[BscService] [API:3] Total holders: ${moralisHolderStatsRaw?.totalHolders || 'undefined'}`);
-                } else {
-                    console.warn(`[BscService] [API:3] Holder Stats data is empty or invalid`);
-                }
+                 console.log(`[BscService] [API:3] Successfully extracted Holder Stats object with totalHolders: ${moralisHolderStatsRaw?.totalHolders}`);
             }
+        } else {
+            console.warn(`[BscService] [API:3] Failed to get or extract Moralis Holder Stats. Status: ${statsResult.status}. Reason/Error:`, statsResult.reason || statsResult.value || 'Expected value.data object not found');
         }
-        
+
+
         // 处理 API 4: Birdeye Top Traders
-        let birdeyeTopTraders = []; 
-        const traderResult = results[4]; 
-        if (traderResult?.status === 'rejected') { 
-            console.warn(`[BscService] [API:4] Top Traders API call rejected: ${traderResult.reason?.message || 'Unknown error'}`);
-        } else if (traderResult?.status === 'fulfilled') {
-            console.log(`[BscService] [API:4] Top Traders API response structure:`, 
-                typeof traderResult.value, 
-                traderResult.value ? Object.keys(traderResult.value) : 'null');
-                
-            if (traderResult.value?.success === false) {
-                console.warn(`[BscService] [API:4] Top Traders API call returned business error: ${traderResult.value?.error || 'Unknown error'}`);
-            } else if (traderResult.value?.success === true && traderResult.value?.data?.items && Array.isArray(traderResult.value.data.items)) {
-                // 正确提取 getBirdeyeTopTraders 返回的 data.items 数组
-                birdeyeTopTraders = traderResult.value.data.items;
-                console.log(`[BscService] [API:4] Successfully extracted ${birdeyeTopTraders.length} Top Traders from 'data.items' field`);
-            } else {
-                // 尝试多种路径提取交易者数组
-                let extractedArray = null;
-                
-                if (traderResult.value?.topTraders && Array.isArray(traderResult.value.topTraders)) {
-                    extractedArray = traderResult.value.topTraders;
-                    console.log(`[BscService] [API:4] Found traders in 'topTraders' field: ${extractedArray.length} elements`);
-                } else if (traderResult.value?.items && Array.isArray(traderResult.value.items)) {
-                    extractedArray = traderResult.value.items;
-                    console.log(`[BscService] [API:4] Found traders in 'items' field: ${extractedArray.length} elements`);
-                } else if (Array.isArray(traderResult.value)) {
-                    extractedArray = traderResult.value;
-                    console.log(`[BscService] [API:4] Using value directly as traders array: ${extractedArray.length} elements`);
-                } else if (traderResult.value?.data && Array.isArray(traderResult.value.data)) {
-                    extractedArray = traderResult.value.data;
-                    console.log(`[BscService] [API:4] Found traders in 'data' field: ${extractedArray.length} elements`);
-                }
-                
-                if (extractedArray && extractedArray.length > 0) {
-                    birdeyeTopTraders = extractedArray;
-                    console.log(`[BscService] [API:4] Extracted ${birdeyeTopTraders.length} Top Traders using fallback method`);
-                } else {
-                    console.warn(`[BscService] [API:4] Failed to extract traders: unexpected response structure`);
-                    console.warn(`[BscService] [API:4] Response value:`, typeof traderResult.value);
-                    if (traderResult.value && typeof traderResult.value === 'object') {
-                        console.warn(`[BscService] [API:4] Response keys:`, Object.keys(traderResult.value));
-                    }
-                }
-            }
+        let birdeyeTopTraders = []; // Default empty array
+        const tradersResult = results[4];
+        // Access the items array from 'data.items' key based on Birdeye raw response log
+        if (tradersResult.status === 'fulfilled' && tradersResult.value?.success && Array.isArray(tradersResult.value.data?.items)) {
+            birdeyeTopTraders = tradersResult.value.data.items;
+            console.log(`[BscService] [API:4] Successfully extracted ${birdeyeTopTraders.length} Birdeye Top Traders from value.data.items`);
+        } else {
+             console.warn(`[BscService] [API:4] Failed to get or extract Birdeye Top Traders. Status: ${tradersResult.status}. Reason/Error:`, tradersResult.reason || tradersResult.value?.error || 'Expected value.data.items array not found');
         }
-        
-        // 处理 API 5: Moralis Token Analytics
-        let moralisAnalytics = null;
-        const analyticsResult = results[5];
-        if (analyticsResult?.status === 'rejected') {
-            console.warn(`[BscService] [API:5] Token Analytics API call rejected: ${analyticsResult.reason?.message || 'Unknown error'}`);
-        } else if (analyticsResult?.status === 'fulfilled') {
-            if (analyticsResult.value?.success === false) {
-                console.warn(`[BscService] [API:5] Token Analytics API call returned business error: ${analyticsResult.value?.error || 'Unknown error'}`);
-            } else {
-                moralisAnalytics = analyticsResult.value;
-                console.log(`[BscService] [API:5] Successfully extracted Token Analytics`);
-            }
-        }
-        
-        // 存储原始数据
+
+        // --- End: PRECISE Replacement Extraction Logic ---
+
+        // Keep extraction for results[0], results[1], results[5] as they seem to work
+        // Assuming metadata is the first element if API returns an array:
+        const moralisTokenDataResult = results[0].status === 'fulfilled' && results[0].value?.success ? results[0].value : null;
+        const moralisMetadataResult = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value[0] : null;
+        const moralisAnalytics = results[5].status === 'fulfilled' && results[5].value?.success ? results[5].value : null;
+
+        // Assign to rawData (make sure names match downstream use)
         rawData = { 
-            moralisTokenData, 
-            moralisMetadata, 
-            moralisHolders, 
-            moralisHolderStatsRaw,
-            birdeyeTopTraders, 
+            moralisTokenData: moralisTokenData || moralisTokenDataResult, 
+            moralisMetadata: moralisMetadataResult, 
+            moralisHolders: moralisHolders, 
+            moralisHolderStats: moralisHolderStatsRaw, 
+            birdeyeTopTraders: birdeyeTopTraders, 
             moralisAnalytics 
         };
-        console.log(`[HANG DEBUG] After Robust Extraction`); // 5. 原始数据提取后
+        console.log("[BscService] Raw BSC data extracted after precise fixes.");
         
-        console.log("[BscService] Raw BSC data extracted.");
-
         console.log(`[HANG DEBUG] Before Standardization Logic`); // 6. 标准化开始前
         // 3. 执行数据标准化 (将 index.js.backup 的逻辑移入)
         standardizedData = {};
@@ -289,7 +203,6 @@ async function getBscTokenDataBundle(address) {
 
         console.log(`[HANG DEBUG] Before top10Holders standardization`); // 9. top10Holders 前
         // 3b. 标准化 top10Holders - 改进格式化逻辑和错误处理
-        const topHoldersRaw = moralisHolders.slice(0, 10);
         console.log(`[BscService] Processing ${topHoldersRaw.length} top holders with price: ${price}, decimals: ${decimals}`);
         
         // 确保 price 和 decimals 值正确且类型匹配
@@ -371,153 +284,53 @@ async function getBscTokenDataBundle(address) {
         console.log(`[BscService] Processed ${standardizedData.top10Holders.length} top holders`);
         console.log(`[HANG DEBUG] After top10Holders standardization`); // 10. top10Holders 后
 
-        console.log(`[HANG DEBUG] Before topTraders standardization`); // 11. topTraders 前
-        // 3c. 标准化 topTraders - 确保处理并正确赋值
-        console.log(`[BscService] Processing ${birdeyeTopTraders.length} top traders`);
+        console.log("[HANG DEBUG] Before topTraders standardization"); // 修复：添加正确终止的模板字符串
         
-        const tradersResult = birdeyeTopTraders.map(t => { 
-            try {
-                // 获取交易者标签
-                const tags = Array.isArray(t?.tags) ? t.tags : [];
-                // 判断是否为机器人
-                const displayTags = tags.includes('sniper-bot') || tags.includes('arbitrage-bot') ? ['bot'] : tags;
-                
-                // 获取交易量数据
-                const volumeUsd = typeof t?.volume === 'number' ? t.volume : t?.volumeUsd;
-                const volumeBuyUsd = typeof t?.volumeBuy === 'number' ? t.volumeBuy : t?.volumeBuyUsd;
-                const volumeSellUsd = typeof t?.volumeSell === 'number' ? t.volumeSell : t?.volumeSellUsd;
-                
-                // 记录交易者数据
-                console.log(`[BscService] Trader ${t?.owner || 'Unknown'}: Volume: ${volumeUsd}, Buy: ${volumeBuyUsd}, Sell: ${volumeSellUsd}`);
-                
-                return {
-                    owner: t?.owner || 'N/A',
-                    trade: t?.trade ?? t?.tradeCount ?? 0,
-                    tradeBuy: t?.tradeBuy ?? t?.tradeBuyCount ?? 0,
-                    tradeSell: t?.tradeSell ?? t?.tradeSellCount ?? 0,
-                    tags: displayTags,
-                    volumeUsdFormatted: safeCurrencySuffix(volumeUsd),
-                    volumeBuyUsdFormatted: safeCurrencySuffix(volumeBuyUsd),
-                    volumeSellUsdFormatted: safeCurrencySuffix(volumeSellUsd),
-                    // Token数量不可用，设为 N/A
-                    volumeTokenFormatted: 'N/A',
-                    volumeBuyTokenFormatted: 'N/A',
-                    volumeSellTokenFormatted: 'N/A'
-                };
-            } catch(e) {
-                console.error("[BscService] Error processing trader:", e);
-                // 返回一个安全的默认值
-                return {
-                    owner: t?.owner || 'Error',
-                    trade: 0,
-                    tradeBuy: 0,
-                    tradeSell: 0,
-                    tags: [],
-                    volumeUsdFormatted: 'Error',
-                    volumeBuyUsdFormatted: 'Error',
-                    volumeSellUsdFormatted: 'Error',
-                    volumeTokenFormatted: 'N/A',
-                    volumeBuyTokenFormatted: 'N/A',
-                    volumeSellTokenFormatted: 'N/A'
-                };
+        // 3c. 标准化 topTraders
+        standardizedData.topTraders = birdeyeTopTraders.map((trader) => ({
+            address: trader.address || 'N/A',
+            buy: {
+                amount: trader.buyAmount,
+                amountUSD: trader.buyAmountUsd,
+                count: trader.buyCount,
+                price: trader.buyPrice
+            },
+            sell: {
+                amount: trader.sellAmount,
+                amountUSD: trader.sellAmountUsd,
+                count: trader.sellCount,
+                price: trader.sellPrice
+            },
+            total: {
+                amount: (trader.buyAmount || 0) + (trader.sellAmount || 0),
+                amountUSD: (trader.buyAmountUsd || 0) + (trader.sellAmountUsd || 0),
+                count: (trader.buyCount || 0) + (trader.sellCount || 0)
             }
-        });
-        
-        // 显式赋值以确保结果不丢失
-        standardizedData.topTraders = tradersResult;
-        console.log(`[BscService] Processed ${standardizedData.topTraders.length} traders`);
-        console.log(`[HANG DEBUG] After topTraders standardization`); // 12. topTraders 后
+        }));
 
-        console.log(`[HANG DEBUG] Before holderStats standardization`); // 13. holderStats 前
-        // 3d. 标准化 holderStats - 直接使用 moralisHolderStatsRaw
-        console.log(`[BscService] Processing holder stats from Moralis`);
-        console.log(`[BscService] Holder stats data available: ${!!moralisHolderStatsRaw}`);
-        
-        // 直接使用 Moralis 返回的结构，使用 moralisHolderStatsRaw
-        standardizedData.holderStats = { 
-            totalHolders: moralisHolderStatsRaw?.totalHolders ?? null,
-            holderChange: moralisHolderStatsRaw?.holderChange || {
-                '5min': {change: null, changePercent: null},
-                '1h': {change: null, changePercent: null},
-                '6h': {change: null, changePercent: null},
-                '24h': {change: null, changePercent: null},
-                '3d': {change: null, changePercent: null},
-                '7d': {change: null, changePercent: null},
-                '30d': {change: null, changePercent: null}
-            }, 
-            holderSupply: moralisHolderStatsRaw?.holderSupply || {
-                top10: {supplyPercent: null},
-                top25: {supplyPercent: null},
-                top50: {supplyPercent: null},
-                top100: {supplyPercent: null}
-            }, 
-            holderDistribution: moralisHolderStatsRaw?.holderDistribution || {
-                whales: 0,
-                dolphins: 0,
-                fish: 0,
-                shrimps: 0
-            }, 
-            holdersByAcquisition: moralisHolderStatsRaw?.holdersByAcquisition || {
-                swap: null,
-                transfer: null,
-                airdrop: null
-            } 
+        console.log("[HANG DEBUG] After topTraders standardization");
+
+        // 3d. 生成 holderStats 数据
+        standardizedData.holderStats = {
+            totalHolders: moralisHolderStatsRaw?.totalHolders || 0,
+            totalHoldersFormatted: safeNumberSuffix(moralisHolderStatsRaw?.totalHolders),
+            holdersV: moralisHolderStatsRaw?.holdersV || [0,0,0,0,0,0,0],
+            noHolders: moralisHolderStatsRaw?.holdersV?.reduce((c, h) => c + h, 0) || 0,
+            totalSupply: moralisMetadata?.totalSupply || 0,
+            decimalPlace: moralisMetadata?.decimals || 18
         };
         
-        if (moralisHolderStatsRaw) {
-            console.log(`[BscService] Total holders: ${moralisHolderStatsRaw.totalHolders}`);
-            if (moralisHolderStatsRaw.holderDistribution) {
-                console.log(`[BscService] Holder distribution: ${JSON.stringify(moralisHolderStatsRaw.holderDistribution)}`);
-            }
-            if (moralisHolderStatsRaw.holderSupply) {
-                console.log(`[BscService] Holder supply: ${JSON.stringify(moralisHolderStatsRaw.holderSupply)}`);
-            }
-        } else {
-            console.warn(`[BscService] No holder stats data available from Moralis`);
-        }
-        console.log(`[HANG DEBUG] After holderStats standardization`); // 14. holderStats 后
-
-        console.log(`[HANG DEBUG] Before tokenAnalytics standardization`); // 15. tokenAnalytics 前
-        // 3e. 标准化 tokenAnalytics
-        standardizedData.tokenAnalytics = { 
-            totalBuyers: moralisAnalytics?.totalBuyers ?? {}, 
-            totalSellers: moralisAnalytics?.totalSellers ?? {}, 
-            totalBuys: moralisAnalytics?.totalBuys ?? {}, 
-            totalSells: moralisAnalytics?.totalSells ?? {}, 
-            totalBuyVolumeFormatted: safeCurrencySuffix(moralisAnalytics?.totalBuyVolume), 
-            totalSellVolumeFormatted: safeCurrencySuffix(moralisAnalytics?.totalSellVolume), 
-            rawData: moralisAnalytics ?? {} 
-        };
-        console.log(`[HANG DEBUG] After tokenAnalytics standardization`); // 16. tokenAnalytics 后
-
-        console.log(`[HANG DEBUG] Before metadata standardization`); // 17. metadata 前
-        // 3f. 标准化 metadata
-        standardizedData.metadata = { 
-            address: moralisMetadata?.address || contractAddress, 
-            decimals: decimals, 
-            name: overview.name, 
-            symbol: overview.symbol, 
-            totalSupply: moralisMetadata?.total_supply ?? null, 
-            fully_diluted_valuation: moralisMetadata?.fully_diluted_valuation ?? null, 
-            market_cap_usd: overview.marketCap, 
-            explorerUrl: overview.explorerUrl, 
-            verified_contract: moralisMetadata?.verified_contract ?? null 
-        };
-        console.log(`[HANG DEBUG] After metadata standardization`); // 18. metadata 后
-
-        console.log("[BscService] Completed BSC data bundle standardization.");
-
-        console.log(`[HANG DEBUG] Before returning standardizedData`); // 19. 返回前
-        return standardizedData; // 返回最终标准化数据
-
-    } catch (error) {
-        console.error(`[BscService] Error in getBscTokenDataBundle for ${address}:`, error);
-        console.log(`[HANG DEBUG] Error caught in main try-catch`); // 20. 错误捕获
-        return null; // 或者返回一个包含错误信息的对象
+        // Return the standardized data object
+        console.log(`[HANG DEBUG] End of getBscTokenDataBundle`); // 11. 函数结束
+        return standardizedData;
+    } catch (e) {
+        console.error("[BscService] Error processing token data bundle:", e);
+        return null;
     }
 }
 
-// 导出主函数
+console.log("[BscService] BscTokenDataBundle function defined");
+
 module.exports = {
     getBscTokenDataBundle
-}; 
+};
