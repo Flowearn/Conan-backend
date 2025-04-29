@@ -61,14 +61,29 @@ async function getBscTokenDataBundle(address) {
             console.error("[BscService] Holders rejected:", holderResult.reason); 
         }
         
-        const moralisHolderStats = results[3].status === 'fulfilled' ? results[3].value : null;
+        // 修复: 正确获取 holderStats 数据，直接获取整个对象
+        const moralisHolderStats = results[3].status === 'fulfilled' ? 
+            (results[3].value?.data || results[3].value) : null;
         
+        // 修复: 正确解析 Birdeye topTraders 数据
         let birdeyeTopTraders = []; 
         const traderResult = results[4]; 
-        if (traderResult?.status === 'fulfilled' && traderResult.value) { 
-            const p = traderResult.value.data?.items || traderResult.value; 
-            if (Array.isArray(p)) birdeyeTopTraders = p; 
-            else console.warn("[BscService] Traders value not array:", traderResult.value); 
+        if (traderResult?.status === 'fulfilled') { 
+            // 检查各种可能的数据结构
+            if (Array.isArray(traderResult.value)) {
+                birdeyeTopTraders = traderResult.value;
+            } else if (traderResult.value?.data?.items && Array.isArray(traderResult.value.data.items)) {
+                birdeyeTopTraders = traderResult.value.data.items;
+            } else if (traderResult.value?.items && Array.isArray(traderResult.value.items)) {
+                birdeyeTopTraders = traderResult.value.items;
+            } else if (traderResult.value?.data && Array.isArray(traderResult.value.data)) {
+                birdeyeTopTraders = traderResult.value.data;
+            } else {
+                console.warn("[BscService] Could not extract traders array from Birdeye response:", 
+                    JSON.stringify(traderResult.value, null, 2).substring(0, 200) + "...");
+            }
+            
+            console.log(`[BscService] Extracted ${birdeyeTopTraders.length} top traders`);
         } else if (traderResult?.status === 'rejected') { 
             console.error("[BscService] Traders rejected:", traderResult.reason); 
         }
@@ -129,24 +144,53 @@ async function getBscTokenDataBundle(address) {
         
         standardizedData.tokenOverview = overview;
 
-        // 3b. 标准化 top10Holders
+        // 3b. 修复: 标准化 top10Holders
         const topHoldersRaw = moralisHolders.slice(0, 10);
+        console.log(`[BscService] Processing ${topHoldersRaw.length} top holders with price: ${price}, decimals: ${decimals}`);
+        
         standardizedData.top10Holders = topHoldersRaw.map(h => { 
             let qF = 'N/A', vF = 'N/A', qR = BigInt(0); 
             try {
-                const a = h?.owner_address || h?.address || h?.TokenHolderAddress || 'N/A'; 
-                const m = h?.balance || h?.amount || h?.TokenHolderQuantity || '0'; 
-                if (a !== 'N/A' && !isNaN(decimals)) {
-                    qR = BigInt(m);
-                    qF = formatTokenAmount(m, decimals, 4); 
-                    if (typeof price === 'number' && price > 0) {
-                        const qN = Number(qR) / (10**decimals);
-                        vF = formatCurrency(qN * price);
+                // 获取地址
+                const holderAddress = h?.owner_address || h?.address || h?.TokenHolderAddress || 'N/A'; 
+                // 获取余额
+                const balance = h?.balance || h?.amount || h?.TokenHolderQuantity || '0'; 
+                
+                if (holderAddress !== 'N/A' && !isNaN(decimals)) {
+                    // 使用 BigInt 处理 balance
+                    try {
+                        qR = BigInt(balance);
+                        // 格式化代币数量
+                        qF = formatTokenAmount(balance, decimals, 4); 
+                        
+                        // 计算美元价值
+                        if (typeof price === 'number' && price > 0) {
+                            try {
+                                // 将数量转换为标准单位
+                                const balanceNumber = Number(qR) / (10**decimals);
+                                // 计算美元价值
+                                const usdValue = balanceNumber * price;
+                                // 格式化为美元金额
+                                vF = formatCurrency(usdValue);
+                                console.log(`[BscService] Holder ${holderAddress.substring(0, 8)}...: Quantity ${qF}, USD Value ${vF}`);
+                            } catch(e) {
+                                console.error(`[BscService] Error calculating USD value for holder ${holderAddress.substring(0, 8)}...`, e);
+                                vF = 'Error';
+                            }
+                        } else {
+                            console.log(`[BscService] Invalid price for holder ${holderAddress.substring(0, 8)}...: ${price}`);
+                        }
+                    } catch(e) {
+                        console.error(`[BscService] Error parsing balance (${balance}) for holder ${holderAddress.substring(0, 8)}...`, e);
+                        qF = 'Error';
                     }
+                } else {
+                    console.log(`[BscService] Invalid holder address or decimals: ${holderAddress}, decimals: ${decimals}`);
                 }
             } catch(e) {
-                console.error("Err proc BSC holder:", h?.owner_address, e);
+                console.error("[BscService] Error processing holder:", e);
             } 
+            
             return {
                 TokenHolderAddress: h?.owner_address || h?.address || h?.TokenHolderAddress || 'N/A',
                 TokenHolderQuantity: h?.balance || h?.amount || h?.TokenHolderQuantity || '0',
@@ -155,40 +199,99 @@ async function getBscTokenDataBundle(address) {
             };
         });
 
-        // 3c. 标准化 topTraders
+        // 3c. 修复: 标准化 topTraders
+        console.log(`[BscService] Processing ${birdeyeTopTraders.length} top traders`);
+        
         standardizedData.topTraders = birdeyeTopTraders.map(t => { 
-            const tags = t?.tags || []; 
-            const dT = tags.includes('sniper-bot') || tags.includes('arbitrage-bot') ? ['bot'] : tags; 
-            const vU = t?.volume; 
-            const vBU = t?.volumeBuy; 
-            const vSU = t?.volumeSell; 
-            const vTF = 'N/A'; 
-            const vBTF = 'N/A'; 
-            const vSTF = 'N/A'; 
-            return {
-                owner: t?.owner || 'N/A',
-                trade: t?.trade ?? 0,
-                tradeBuy: t?.tradeBuy ?? 0,
-                tradeSell: t?.tradeSell ?? 0,
-                tags: dT,
-                volumeUsdFormatted: safeCurrencySuffix(vU),
-                volumeBuyUsdFormatted: safeCurrencySuffix(vBU),
-                volumeSellUsdFormatted: safeCurrencySuffix(vSU),
-                volumeTokenFormatted: vTF,
-                volumeBuyTokenFormatted: vBTF,
-                volumeSellTokenFormatted: vSTF
-            };
+            try {
+                // 获取交易者标签
+                const tags = Array.isArray(t?.tags) ? t.tags : [];
+                // 判断是否为机器人
+                const displayTags = tags.includes('sniper-bot') || tags.includes('arbitrage-bot') ? ['bot'] : tags;
+                
+                // 获取交易量数据
+                const volumeUsd = typeof t?.volume === 'number' ? t.volume : t?.volumeUsd;
+                const volumeBuyUsd = typeof t?.volumeBuy === 'number' ? t.volumeBuy : t?.volumeBuyUsd;
+                const volumeSellUsd = typeof t?.volumeSell === 'number' ? t.volumeSell : t?.volumeSellUsd;
+                
+                // 记录交易者数据
+                console.log(`[BscService] Trader ${t?.owner || 'Unknown'}: Volume: ${volumeUsd}, Buy: ${volumeBuyUsd}, Sell: ${volumeSellUsd}`);
+                
+                return {
+                    owner: t?.owner || 'N/A',
+                    trade: t?.trade ?? t?.tradeCount ?? 0,
+                    tradeBuy: t?.tradeBuy ?? t?.tradeBuyCount ?? 0,
+                    tradeSell: t?.tradeSell ?? t?.tradeSellCount ?? 0,
+                    tags: displayTags,
+                    volumeUsdFormatted: safeCurrencySuffix(volumeUsd),
+                    volumeBuyUsdFormatted: safeCurrencySuffix(volumeBuyUsd),
+                    volumeSellUsdFormatted: safeCurrencySuffix(volumeSellUsd),
+                    // Token数量不可用，设为 N/A
+                    volumeTokenFormatted: 'N/A',
+                    volumeBuyTokenFormatted: 'N/A',
+                    volumeSellTokenFormatted: 'N/A'
+                };
+            } catch(e) {
+                console.error("[BscService] Error processing trader:", e);
+                // 返回一个安全的默认值
+                return {
+                    owner: t?.owner || 'Error',
+                    trade: 0,
+                    tradeBuy: 0,
+                    tradeSell: 0,
+                    tags: [],
+                    volumeUsdFormatted: 'Error',
+                    volumeBuyUsdFormatted: 'Error',
+                    volumeSellUsdFormatted: 'Error',
+                    volumeTokenFormatted: 'N/A',
+                    volumeBuyTokenFormatted: 'N/A',
+                    volumeSellTokenFormatted: 'N/A'
+                };
+            }
         });
 
-        // 3d. 标准化 holderStats
+        // 3d. 修复: 标准化 holderStats - 直接使用 Moralis 返回的数据，不再单独计算
+        console.log(`[BscService] Processing holder stats from Moralis`);
+        console.log(`[BscService] Holder stats data available: ${!!moralisHolderStats}`);
+        
+        // 直接使用 Moralis 返回的结构
         standardizedData.holderStats = { 
-            totalHolders: moralisHolderStats?.totalHolders ?? null, 
-            holderChange: moralisHolderStats?.holderChange ?? {}, 
-            holderSupply: moralisHolderStats?.holderSupply ?? {}, 
-            holderDistribution: moralisHolderStats?.holderDistribution ?? {}, 
-            holdersByAcquisition: moralisHolderStats?.holdersByAcquisition ?? {} 
+            totalHolders: moralisHolderStats?.totalHolders, 
+            holderChange: moralisHolderStats?.holderChange || {
+                '5min': {change: null, changePercent: null},
+                '1h': {change: null, changePercent: null},
+                '6h': {change: null, changePercent: null},
+                '24h': {change: null, changePercent: null},
+                '3d': {change: null, changePercent: null},
+                '7d': {change: null, changePercent: null},
+                '30d': {change: null, changePercent: null}
+            }, 
+            holderSupply: moralisHolderStats?.holderSupply || {
+                top10: {supplyPercent: null},
+                top25: {supplyPercent: null},
+                top50: {supplyPercent: null},
+                top100: {supplyPercent: null}
+            }, 
+            holderDistribution: moralisHolderStats?.holderDistribution || {
+                whales: 0,
+                dolphins: 0,
+                fish: 0,
+                shrimps: 0
+            }, 
+            holdersByAcquisition: moralisHolderStats?.holdersByAcquisition || {
+                swap: null,
+                transfer: null,
+                airdrop: null
+            } 
         };
-        // TODO: Add calculation logic for distribution/supply% if needed
+        
+        if (moralisHolderStats) {
+            console.log(`[BscService] Total holders: ${moralisHolderStats.totalHolders}`);
+            console.log(`[BscService] Holder distribution: ${JSON.stringify(moralisHolderStats.holderDistribution || {})}`);
+            console.log(`[BscService] Holder supply: ${JSON.stringify(moralisHolderStats.holderSupply || {})}`);
+        } else {
+            console.warn(`[BscService] No holder stats data available from Moralis`);
+        }
 
         // 3e. 标准化 tokenAnalytics
         standardizedData.tokenAnalytics = { 
