@@ -228,7 +228,30 @@ async function getBscTokenDataBundle(address) {
         overview.logoURI = bsc_moralis_metadata?.logo || null;
         overview.price = price ?? 0;
         overview.priceFormatted = formatCurrency(price);
-        overview.priceChange24h = bsc_moralis_priceData?.['24hrPercentChange'] ?? null;
+        
+        // 在 // 3a. 标准化 tokenOverview 代码块内部，替换原来的 overview.priceChange24h 赋值逻辑
+        const rawPriceChange = bsc_moralis_priceData?.['24hrPercentChange']; // 从价格数据获取原始值 (注意 key 可能带 %)
+        let formattedPriceChange = 'N/A'; // 默认值
+
+        // 检查原始值是否存在
+        if (rawPriceChange !== null && rawPriceChange !== undefined) {
+            // 尝试将原始值（可能是字符串）转换为数字
+            const changeNumber = parseFloat(rawPriceChange);
+            // 检查转换是否成功
+            if (!isNaN(changeNumber)) {
+                // Moralis API 已经返回百分比值，不需要再乘以100
+                console.log(`[DEBUG priceChange24h] Raw: ${rawPriceChange}, Parsed: ${changeNumber}`);
+                formattedPriceChange = changeNumber.toFixed(2) + '%';
+            } else {
+                // 如果无法解析为数字，记录警告
+                console.warn(`[BscService] Could not parse priceChange24h from raw value: ${rawPriceChange}`);
+                // formattedPriceChange 保持 'N/A'
+            }
+        }
+
+        // 将格式化后的字符串赋值给 overview 对象
+        overview.priceChange24h = formattedPriceChange;
+        
         overview.liquidityFormatted = safeCurrencySuffix(bsc_moralis_priceData?.pairTotalLiquidityUsd);
         
         let marketCap = bsc_moralis_metadata?.market_cap;
