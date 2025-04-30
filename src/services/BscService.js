@@ -206,14 +206,14 @@ async function getBscTokenDataBundle(address) {
         }
 
         // 更新 rawData 对象
-        rawData = {
+        rawData = { 
             bsc_moralis_metadata,
             bsc_moralis_holderStats,
             bsc_birdeye_topTraders,
             bsc_moralis_analytics,
             bsc_moralis_priceData
         };
-        
+
         // 3. 执行数据标准化
         standardizedData = {};
 
@@ -268,7 +268,7 @@ async function getBscTokenDataBundle(address) {
             } catch(e){ 
                 console.error("Err calc BSC MC:", e); 
                 marketCap = 0; 
-            }
+            } 
             overview.marketCap = marketCap ?? 0;
             overview.marketCapFormatted = safeCurrencySuffix(marketCap);
         } else if (marketCap && marketCap !== 'N/A') {
@@ -330,17 +330,17 @@ async function getBscTokenDataBundle(address) {
         });
 
         // 3d. 生成 holderStats 数据
-        standardizedData.holderStats = {
+        standardizedData.holderStats = { 
             totalHolders: bsc_moralis_holderStats?.totalHolders ?? null,
             holderChange: bsc_moralis_holderStats?.holderChange ?? { '5min':{change:null,changePercent:null},'1h':{change:null,changePercent:null},'6h':{change:null,changePercent:null},'24h':{change:null,changePercent:null},'3d':{change:null,changePercent:null},'7d':{change:null,changePercent:null},'30d':{change:null,changePercent:null} },
             holderSupply: bsc_moralis_holderStats?.holderSupply ?? { top10:{supplyPercent:null},top25:{supplyPercent:null},top50:{supplyPercent:null},top100:{supplyPercent:null} },
             holderDistribution: bsc_moralis_holderStats?.holderDistribution ?? { whales:0, dolphins:0, fish:0, shrimps:0, sharks: 0, octopus: 0, crabs: 0 },
             holdersByAcquisition: bsc_moralis_holderStats?.holdersByAcquisition ?? { swap:null, transfer:null, airdrop:null }
         };
-        
+
         // 3e. 标准化 tokenAnalytics
         if (bsc_moralis_analytics) {
-            standardizedData.tokenAnalytics = {
+        standardizedData.tokenAnalytics = { 
                 totalBuyers: bsc_moralis_analytics.totalBuyers ?? {},
                 totalSellers: bsc_moralis_analytics.totalSellers ?? {},
                 totalBuys: bsc_moralis_analytics.totalBuys ?? {},
@@ -357,7 +357,7 @@ async function getBscTokenDataBundle(address) {
 
         // 3f. 标准化 metadata
         if (bsc_moralis_metadata) {
-            standardizedData.metadata = {
+        standardizedData.metadata = { 
                 address: bsc_moralis_metadata.address || contractAddress,
                 decimals: parseInt(bsc_moralis_metadata.decimals ?? '18', 10),
                 name: bsc_moralis_metadata.name || 'N/A',
@@ -390,4 +390,4 @@ console.log("[BscService] BscTokenDataBundle function defined");
 
 module.exports = {
     getBscTokenDataBundle
-};
+}; 
