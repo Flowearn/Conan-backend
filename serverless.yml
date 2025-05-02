@@ -1,0 +1,42 @@
+service: conan-backend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ap-southeast-1
+  memorySize: 512
+  timeout: 30
+  environment:
+    NODE_ENV: ${sls:stage}
+    SSM_PATH_PREFIX: /conan/api
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "ssm:GetParameter"
+            - "ssm:GetParametersByPath"
+          Resource: "arn:aws:ssm:${aws:region}:${aws:accountId}:parameter/conan/api/*"
+        - Effect: "Allow"
+          Action:
+            - "kms:Decrypt"
+          Resource: "*"
+
+functions:
+  api:
+    handler: src/index.handler
+    events:
+      - httpApi:
+          path: /
+          method: ANY
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+    environment:
+      NODE_ENV: ${sls:stage}
+
+plugins:
+  - serverless-offline
