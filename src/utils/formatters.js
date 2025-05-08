@@ -379,6 +379,92 @@ function safeNumberSuffix(value, precision = 1) {
   }
 }
 
+/**
+ * 格式化百分比
+ * @param {number|string|null|undefined} value - 要格式化的值
+ * @param {number} decimals - 保留的小数位数 (默认 2)
+ * @returns {string} 格式化后的百分比字符串 (例如 "12.34%") 或 "N/A"
+ */
+function formatPercentage(value, decimals = 2) {
+  try {
+    // 处理 null, undefined, 空字符串
+    if (value === null || value === undefined || value === '') {
+      return 'N/A';
+    }
+    // 尝试将输入转为数字
+    const number = typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value; // 增加去除逗号
+    // 检查是否为有效数字
+    if (typeof number !== 'number' || isNaN(number)) {
+      return 'N/A';
+    }
+    // 格式化为指定小数位数并添加 '%' 符号
+    return number.toFixed(decimals) + '%';
+  } catch (error) {
+    console.error('Error formatting percentage:', error);
+    return 'N/A'; // 出错时返回 N/A
+  }
+}
+
+/**
+ * Special processor for wallet counts, buy counts, and sell counts:
+ * - If the value is a string with K/M/B/T suffix, return it unchanged
+ * - If the value is a number less than 1000, return it as an integer
+ * - If the value is a number greater than or equal to 1000, use safeNumberSuffix
+ * @param {any} value - The count value to process
+ * @returns {string|number} Processed count value
+ */
+function processCountValue(value) {
+  try {
+    // If null, undefined or empty string, return '0'
+    if (value === null || value === undefined || value === '') {
+      return '0';
+    }
+    
+    // If it's already a string with K/M/B/T suffix, return it unchanged
+    if (typeof value === 'string') {
+      // Check if the string contains K, M, B, or T suffix
+      if (/[KMBTkmbt]/.test(value)) {
+        return value;
+      }
+      
+      // Try to parse it as a number
+      const parsedValue = parseFloat(value);
+      if (isNaN(parsedValue)) {
+        return '0'; // Return '0' for invalid strings
+      }
+      
+      // Apply integer rounding for values < 1000
+      if (parsedValue < 1000) {
+        return Math.floor(parsedValue);
+      }
+      
+      // For values >= 1000, use the safeNumberSuffix formatter
+      return safeNumberSuffix(parsedValue, 1);
+    }
+    
+    // Handle numeric values
+    if (typeof value === 'number') {
+      if (isNaN(value)) {
+        return '0';
+      }
+      
+      // Apply integer rounding for values < 1000
+      if (value < 1000) {
+        return Math.floor(value);
+      }
+      
+      // For values >= 1000, use the safeNumberSuffix formatter
+      return safeNumberSuffix(value, 1);
+    }
+    
+    // For any other type, return '0'
+    return '0';
+  } catch (error) {
+    console.error('Error in processCountValue:', error);
+    return '0';
+  }
+}
+
 module.exports = {
   formatTimestamp,
   formatTokenAmount,
@@ -387,5 +473,7 @@ module.exports = {
   formatNumberSuffix,
   formatCurrencySuffix,
   safeCurrencySuffix,
-  safeNumberSuffix
+  safeNumberSuffix,
+  formatPercentage,
+  processCountValue
 }; 

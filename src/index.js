@@ -58,6 +58,9 @@ const {
 // Import Chain Services
 const BscService = require('./services/BscService');
 const SolanaService = require('./services/SolanaService');
+// Ensure both services are correctly imported
+const { getBscTokenDataBundle } = require('./services/BscService');
+const { getSolanaTokenDataBundle } = require('./services/SolanaService');
 
 // 检查formatCurrencySuffix是否正确导入
 console.log('formatCurrencySuffix imported successfully:', !!formatCurrencySuffix);
@@ -186,108 +189,214 @@ app.get('/api/test-birdeye', async (req, res) => {
   }
 });
 
+// 帮助函数：检测地址类型（BSC或Solana）
+function detectChainType(address) {
+  if (!address) {
+    console.error('[detectChainType] Invalid address provided:', address);
+    // 如果地址无效，默认返回BSC类型
+    return { chainType: 'bsc', normalizedAddress: address || '' };
+  }
+  
+  // 用于检查的小写版本，但不会直接修改原始地址
+  const lowercaseAddress = address.toLowerCase();
+  console.log(`[detectChainType] Analyzing address: ${address}`);
+  
+  // 如果地址以0x开头，则为BSC（以太坊兼容链）
+  if (lowercaseAddress.startsWith('0x')) {
+    console.log(`[detectChainType] Detected BSC address pattern (0x prefix)`);
+    return { chainType: 'bsc', normalizedAddress: lowercaseAddress }; // BSC地址可以使用小写
+  } 
+  
+  // 判断是否符合Solana地址格式: base58编码的字符串
+  // Solana地址通常是32-44个字符的base58编码字符串
+  // 基本验证：长度在32-44范围内且只包含base58字符集
+  const solanaAddressPattern = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  if (solanaAddressPattern.test(address)) { // 注意：这里使用原始地址进行测试
+    console.log(`[detectChainType] Detected Solana address pattern (base58 format)`);
+    return { chainType: 'solana', normalizedAddress: address }; // 保留Solana地址原始大小写
+  }
+  
+  // 如果不符合已知模式，默认假定为Solana地址，保留原始大小写
+  console.warn(`[detectChainType] Address format not recognized, defaulting to Solana with original case`);
+  return { chainType: 'solana', normalizedAddress: address }; // 保留原始大小写
+}
+
 // Token data route - get token data from Moralis
 app.get('/api/token-data/:chain/:address', async (req, res) => {
     // --- Start: Replacement logic for the handler ---
     try {
-        const { chain, address } = req.params;
-        // Use different names for query params to avoid potential scope issues if 'lang'/'analyze' used elsewhere
+        // 1. 添加日志以打印请求详情
+        console.log('[Index Handler] Received request details:', JSON.stringify({
+            params: req.params,
+            query: req.query,
+            headers: req.headers,
+            path: req.path,
+            originalUrl: req.originalUrl
+        }, null, 2));
+
+        const { address } = req.params;
+        const { chain: requestedChain } = req.params; // 记录用户请求的链，但优先使用自动检测结果
         const { analyze: analyzeQuery, lang: langQuery } = req.query;
         const analyze = analyzeQuery === 'true'; // Convert to boolean
         const lang = langQuery || 'en'; // Default language
 
-        console.log(`[API Handler V2] Request received: ${chain} - ${address} (analyze=${analyze}, lang=${lang})`);
+        // 2. 添加日志打印提取的参数
+        console.log('[Index Handler] Extracted chain:', requestedChain, 'Address:', address);
 
-        const lowerCaseChain = chain.toLowerCase();
-        const lowerCaseAddress = address.toLowerCase();
-        // --- Use a dedicated cache key for BASE data ONLY ---
-        const baseCacheKey = `baseTokenData:${lowerCaseChain}:${lowerCaseAddress}`;
+        // --- 添加链检测 ---
+        const { chainType: detectedChain, normalizedAddress } = detectChainType(address);
+        console.log(`[API Handler V2] Detected chain: ${detectedChain} for address: ${address} (analyze=${analyze}, lang=${lang})`);
+
+        // 当用户指定的链与检测到的链不同时输出警告
+        if (requestedChain && requestedChain !== detectedChain) {
+          console.warn(`[API Handler V2] Chain type mismatch! User requested: ${requestedChain}, but detected: ${detectedChain}`);
+        }
+        // --- 链检测结束 ---
+
+        // --- 更新缓存键以包含检测到的链 ---
+        const baseCacheKey = `baseTokenData:${detectedChain}:${normalizedAddress}`;
 
         let baseData = null; // Use 'any' or your BaseTokenData type
         let source = 'api'; // Assume fresh fetch initially
 
         // --- Step 1: Get BASE Data (Cache or Fetch) ---
-        baseData = myCache.get(baseCacheKey);
-        if (baseData) {
-            console.log(`[API Handler V2] Base data cache hit for ${baseCacheKey}`);
-            source = 'cache';
-        } else {
-            console.log(`[API Handler V2] Base data cache miss for ${baseCacheKey}. Fetching fresh base data...`);
+        console.log(`[API Handler V2] Cache disabled - Fetching fresh base data...`);
+        console.log(`[API Handler V2] Fetching fresh base data for ${detectedChain}...`);
+        console.log(`[Index Handler] Calling solanaService.getTokenDataBundle for address: ${normalizedAddress}`);
+        
+        // 添加API密钥末尾显示以确认有效性
+        console.log(`[Index Handler] API Key ending with: ...${process.env.BIRDEYE_API_KEY.slice(-6)}`);
+        // 添加请求头日志
+        console.log(`[Index Handler] Request headers:`, JSON.stringify(req.headers, null, 2));
+        // 添加Node.js版本日志和环境信息
+        console.log(`[Index Handler] Node.js version: ${process.version}`);
+        console.log(`[Index Handler] Environment: ${process.env.STAGE || 'dev'}`);
+        
+        // --- 清晰地显示我们即将调用的服务和地址 ---
+        console.log(`[API Handler V2] Calling SolanaService for ${normalizedAddress}`);
+        console.log(`[Index Handler] Solana service call - Time: ${new Date().toISOString()}`);
+        
+        if (detectedChain === 'solana') {
             try {
-                // Fetch base data based on chain type
-                if (lowerCaseChain === 'bsc') {
-                    baseData = await BscService.getBscTokenDataBundle(lowerCaseAddress);
-                } else if (lowerCaseChain === 'solana') {
-                    baseData = await SolanaService.getSolanaTokenDataBundle(lowerCaseAddress);
-                } else {
-                    // Unsupported chain
-                    console.warn(`[API Handler V2] Unsupported chain requested: ${lowerCaseChain}`);
-                    return res.status(400).json({ success: false, error: `Unsupported chain: ${lowerCaseChain}` });
+                baseData = await getSolanaTokenDataBundle(normalizedAddress);
+                
+                if (!baseData) {
+                    console.error(`[API Handler V2] SolanaService returned null or undefined data for ${normalizedAddress}`);
+                    return res.status(404).json({
+                        success: false,
+                        errors: [{
+                            code: 'SOLANA_DATA_NOT_FOUND',
+                            message: `No data found for Solana address: ${address}`,
+                            details: { address, normalizedAddress }
+                        }]
+                    });
                 }
-
-                if (baseData && Object.keys(baseData).length > 0) { // Check if fetch was successful
-                     // --- Cache ONLY the fetched BASE data ---
-                    myCache.set(baseCacheKey, baseData);
-                    console.log(`[API Handler V2] Base data fetched and cached for ${baseCacheKey}`);
-                } else {
-                    console.log(`[API Handler V2] Failed to fetch base data or fetched data is empty for ${baseCacheKey}`);
-                    // Set baseData to null if fetch failed to prevent proceeding
-                    baseData = null;
-                }
-            } catch (fetchError) {
-                console.error('[API Handler V2] Error fetching base data:', fetchError);
-                baseData = null; // Ensure baseData is null on fetch error
+            } catch (solanaError) {
+                console.error(`[Index Handler] Solana service call failed:`, solanaError);
+                return res.status(500).json({
+                    success: false,
+                    errors: [{
+                        code: 'SOLANA_SERVICE_ERROR',
+                        message: `Error fetching data from Solana service: ${solanaError.message}`,
+                        details: { address, normalizedAddress }
+                    }]
+                });
             }
+        } else if (detectedChain === 'bsc') {
+            try {
+                console.log(`[API Handler V2] Calling BscService for ${normalizedAddress}`);
+                baseData = await getBscTokenDataBundle(normalizedAddress);
+                
+                if (!baseData) {
+                    console.error(`[API Handler V2] BscService returned null or undefined data for ${normalizedAddress}`);
+                    return res.status(404).json({
+                        success: false,
+                        errors: [{
+                            code: 'BSC_DATA_NOT_FOUND',
+                            message: `No data found for BSC address: ${address}`,
+                            details: { address, normalizedAddress }
+                        }]
+                    });
+                }
+            } catch (bscError) {
+                console.error(`[Index Handler] BSC service call failed:`, bscError);
+                return res.status(500).json({
+                    success: false,
+                    errors: [{
+                        code: 'BSC_SERVICE_ERROR',
+                        message: `Error fetching data from BSC service: ${bscError.message}`,
+                        details: { address, normalizedAddress }
+                    }]
+                });
+            }
+        } else {
+            return res.status(400).json({
+                success: false,
+                errors: [{
+                    code: 'UNSUPPORTED_CHAIN',
+                    message: `Unsupported chain type: ${detectedChain}`,
+                    details: { requestedChain, detectedChain, address }
+                }]
+            });
         }
 
-        // Handle case where base data couldn't be obtained
-        if (!baseData) {
-            // Use return here to exit the function cleanly
-            return res.status(404).json({ success: false, message: 'Token base data not found or failed to fetch.' });
-        }
-
-        // --- Step 2: Prepare Response Data (Start with a DEEP COPY of base data) ---
-        // Use deep copy to avoid modifying the cached object if AI analysis adds fields
-        let responseData = JSON.parse(JSON.stringify(baseData));
+        // If we got here, we have valid baseData
+        console.log(`[API Handler V2] Base data (${detectedChain}) fetched successfully`);
+        
+        // Prepare API response with baseData
+        const apiResponse = {
+            success: true,
+            data: baseData,
+            meta: {
+                source,
+                chain: detectedChain,
+                address: normalizedAddress,
+                normalizedAddress,
+                timestamp: new Date().toISOString()
+            }
+        };
 
         // --- Step 3: Conditional AI Analysis (ALWAYS check 'analyze' flag AFTER getting baseData) ---
         if (analyze) {
-            console.log(`[API Handler V2] Generating AI analysis (using data from ${source}). Lang: ${lang}`);
-            console.log('[index.js V2] Calling generateBasicAnalysis...'); // Keep V2 logs distinct
+            console.log(`[API Handler V2] Analyze flag set to true, attempting AI analysis for ${detectedChain}:${normalizedAddress} (lang=${lang})`);
+            
             try {
-                // Ensure generateBasicAnalysis is imported/available
-                // Pass necessary BASE data (or deep copy) to the function
-                const aiResult = await generateBasicAnalysis(baseData, lang); // Pass original baseData or responseData
-                console.log('[index.js V2] generateBasicAnalysis returned.');
+                // 先生成基础分析 - 这是所有链共用的
+                console.log('[API Handler V2] Generating basic AI Analysis...');
+                console.log("DEBUG INSTRUCTION 1 (index.js): topTraders data BEFORE calling generateBasicAnalysis:", JSON.stringify(baseData.topTraders, null, 2));
+                const aiResult = await generateBasicAnalysis(baseData, lang);
 
                 if (aiResult && aiResult.success) {
                     // Add AI analysis result to the response object
-                    responseData.aiAnalysis = {
+                    apiResponse.data.aiAnalysis = {
                         basicAnalysis: aiResult.analysis
                     };
-                    console.log('[API Handler V2] AI analysis generated and merged successfully.');
-                    source += '+ai'; // Update source info
+                    console.log('[API Handler V2] AI Analysis successfully added to response');
+                    // Add detailed logging
+                    console.log('[API Handler V2] AI Analysis length:', aiResult.analysis ? aiResult.analysis.length : 0);
+                    console.log('[API Handler V2] AI Analysis first 100 chars:', aiResult.analysis ? aiResult.analysis.substring(0, 100) : 'N/A');
+                    console.log('[API Handler V2] Final apiResponse.data.aiAnalysis structure:', JSON.stringify(apiResponse.data.aiAnalysis, null, 2));
                 } else {
                     const errorMessage = aiResult ? aiResult.error : 'Unknown AI analysis failure';
                     console.error('[API Handler V2] AI Analysis Generation Failed:', errorMessage);
-                    responseData.aiAnalysis = { 
+                    apiResponse.data.aiAnalysis = { 
                         basicAnalysis: `Error: ${errorMessage}` 
                     };
                 }
             } catch (aiError) {
                 console.error('[API Handler V2] Error during AI Analysis generation process:', aiError);
-                responseData.aiAnalysis = { 
+                apiResponse.data.aiAnalysis = { 
                     basicAnalysis: `Error: Failed to generate AI analysis` 
                 };
             }
         } else {
-             console.log('[API Handler V2] AI analysis not requested.');
+            console.log(`[API Handler V2] Analyze flag not set, skipping AI analysis`);
         }
 
         // --- Step 4: Send final response ---
-        console.log(`[API Handler V2] Sending final response. Source: ${source}`);
+        console.log(`[API Handler V2] Sending final response. Source: ${source}, Chain: ${detectedChain}`);
         // Add success: true explicitly here
-        return res.json({ success: true, data: responseData, source: source });
+        return res.json(apiResponse);
 
     } catch (error) {
         // General error handler for the entire request processing
@@ -307,16 +416,26 @@ app.get('/api/token-analytics/:chain/:address', async (req, res) => {
   const { chain, address } = req.params;
   console.log(`\n=== Received token analytics request for chain: ${chain}, address: ${address} ===`);
   
-  const contractAddress = address.toLowerCase();
-  const cacheKey = `tokenAnalytics:${chain}:${contractAddress}`;
-  const cachedData = myCache.get(cacheKey);
-
-  if (cachedData) {
-    console.log(`✅ Cache hit for key: ${cacheKey}`);
-    return res.json(cachedData);
+  // 使用相同的链检测逻辑
+  const { chainType: detectedChain, normalizedAddress } = detectChainType(address);
+  console.log(`[API Handler] Detected chain for analytics: ${detectedChain} for address: ${address}`);
+  
+  // 当用户指定的链与检测到的链不同时输出警告
+  if (chain && chain !== detectedChain) {
+    console.warn(`[API Handler] Analytics chain type mismatch! User requested: ${chain}, but detected: ${detectedChain}`);
   }
+  
+  const contractAddress = normalizedAddress;
+  const cacheKey = `tokenAnalytics:${detectedChain}:${contractAddress}`;
+  
+  // 注释掉缓存读取和检查
+  // const cachedData = myCache.get(cacheKey);
+  // if (cachedData) {
+  //   console.log(`✅ Cache hit for key: ${cacheKey}`);
+  //   return res.json(cachedData);
+  // }
 
-  console.log(`Cache miss for key: ${cacheKey}. Fetching fresh data...`);
+  console.log(`Cache disabled - Fetching fresh data...`);
   try {
     console.log('Calling Moralis service for token analytics data...');
     const result = await getMoralisTokenAnalytics(contractAddress);
@@ -385,12 +504,13 @@ app.get('/api/token-analytics/:chain/:address', async (req, res) => {
           '24h': formatVolume(rawData.totalSellVolume?.['24h'])
         },
         rawData: rawData
-      }
+      },
+      chain: detectedChain // 添加链信息到响应中
     };
     
-    // 设置缓存 (30分钟)
-    console.log(`Setting cache for key: ${cacheKey}`);
-    myCache.set(cacheKey, response, 1800);
+    // 注释掉缓存设置
+    // console.log(`Setting cache for key: ${cacheKey}`);
+    // myCache.set(cacheKey, response, 1800);
     
     return res.json(response);
   } catch (error) {

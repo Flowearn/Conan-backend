@@ -1,6 +1,6 @@
 const axios = require('axios');
 const {
-    formatCurrency, safeCurrencySuffix, safeNumberSuffix, formatTokenAmount
+    formatCurrency, formatPercentage, safeCurrencySuffix, safeNumberSuffix, formatTokenAmount, processCountValue
     // 导入所有需要的 formatters
 } = require('../utils/formatters');
 
@@ -140,6 +140,7 @@ async function _fetchBirdeyeTopTraders(address, time_frame = '24h', limit = 10, 
             timeout: 30000 // 30秒超时
         });
         console.log(`[BscService:_fetchBirdeyeTopTraders] Successfully fetched top traders for ${address}`);
+        console.log('[BscService] Working Birdeye Response Keys:', Object.keys(response.data || {}));
         return response.data;
     } catch (error) {
         console.error(`[BscService:_fetchBirdeyeTopTraders] Error fetching Birdeye top traders for ${address}:`, error.response?.status, error.message);
@@ -340,7 +341,8 @@ async function getBscTokenDataBundle(address) {
 
         // 3e. 标准化 tokenAnalytics
         if (bsc_moralis_analytics) {
-        standardizedData.tokenAnalytics = { 
+            // 先创建基本对象结构
+            const rawAnalytics = {
                 totalBuyers: bsc_moralis_analytics.totalBuyers ?? {},
                 totalSellers: bsc_moralis_analytics.totalSellers ?? {},
                 totalBuys: bsc_moralis_analytics.totalBuys ?? {},
@@ -349,6 +351,43 @@ async function getBscTokenDataBundle(address) {
                 totalSellVolume: bsc_moralis_analytics.totalSellVolume ?? {},
                 totalLiquidityUsd: bsc_moralis_analytics.totalLiquidityUsd ?? null,
                 totalFullyDilutedValuation: bsc_moralis_analytics.totalFullyDilutedValuation ?? null
+            };
+            
+            // 对钱包/买入/卖出计数进行特殊处理
+            // 处理钱包数据
+            const processedBuyers = {};
+            const processedSellers = {};
+            // 处理交易计数
+            const processedBuys = {};
+            const processedSells = {};
+            
+            // 处理所有可能的时间维度
+            Object.keys(rawAnalytics.totalBuyers || {}).forEach(timeKey => {
+                processedBuyers[timeKey] = processCountValue(rawAnalytics.totalBuyers[timeKey]);
+            });
+            
+            Object.keys(rawAnalytics.totalSellers || {}).forEach(timeKey => {
+                processedSellers[timeKey] = processCountValue(rawAnalytics.totalSellers[timeKey]);
+            });
+            
+            Object.keys(rawAnalytics.totalBuys || {}).forEach(timeKey => {
+                processedBuys[timeKey] = processCountValue(rawAnalytics.totalBuys[timeKey]);
+            });
+            
+            Object.keys(rawAnalytics.totalSells || {}).forEach(timeKey => {
+                processedSells[timeKey] = processCountValue(rawAnalytics.totalSells[timeKey]);
+            });
+            
+            // 创建最终的标准化数据对象
+            standardizedData.tokenAnalytics = { 
+                totalBuyers: processedBuyers,
+                totalSellers: processedSellers,
+                totalBuys: processedBuys,
+                totalSells: processedSells,
+                totalBuyVolume: rawAnalytics.totalBuyVolume,
+                totalSellVolume: rawAnalytics.totalSellVolume,
+                totalLiquidityUsd: rawAnalytics.totalLiquidityUsd,
+                totalFullyDilutedValuation: rawAnalytics.totalFullyDilutedValuation
             };
         } else {
             standardizedData.tokenAnalytics = {};

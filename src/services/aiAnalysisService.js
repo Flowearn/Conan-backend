@@ -187,6 +187,10 @@ Please ensure your analysis maintains internal consistency. If you identify sign
       console.log('成功从API获取响应!');
       console.log('响应预览:', responseText.substring(0, 50) + '...');
       
+      // Add more detailed logging
+      console.log('AI响应完整长度:', responseText.length);
+      console.log('AI响应类型:', typeof responseText);
+      
       return {
         success: true,
         analysis: responseText
@@ -242,32 +246,83 @@ Please ensure your analysis maintains internal consistency. If you identify sign
  */
 async function generateBasicAnalysis(tokenData, lang = 'zh') {
   console.log(`[aiService] generateBasicAnalysis started. Lang:`, lang);
+  console.log("DEBUG INSTRUCTION 2 (aiAnalysisService.js): topTraders data RECEIVED by generateBasicAnalysis:", JSON.stringify(tokenData.topTraders, null, 2));
   
   // 提取所需数据
-  const { tokenOverview, holderStats, metadata, tokenAnalytics, topTraders } = tokenData;
+  const { tokenOverview, holderStats, metadata, tokenAnalytics, topTraders, chain } = tokenData;
   
-  if (!tokenOverview || !holderStats) {
+  if (!tokenOverview) {
     return {
       success: false,
       error: '缺少基本数据',
-      details: '缺少必要的代币数据或持有者数据'
+      details: '缺少必要的代币数据'
     };
   }
   
-  // 构建英文版本的prompt
-  const promptEN = `Please provide a concise (300-400 words) integrated basic analysis **in English** based on the following token data. Please merge insights from all aspects and do not list analysis points one by one.
-
-### Token Core Info
-- Name/Symbol: ${tokenOverview.name} (${tokenOverview.symbol})
-- Price: ${tokenOverview.priceFormatted} (24h Change: ${tokenOverview.priceChange24h ?? 'N/A'})
-- Circulating Supply: ${tokenOverview.circulatingSupplyFormatted}
-- LP Liquidity: ${tokenOverview.liquidityFormatted ?? 'N/A'}
-- Market Cap: ${tokenOverview.marketCapFormatted ?? 'N/A'}
-- FDV: ${tokenOverview.fdvFormatted ?? 'N/A'}
-- Possible Spam: ${metadata?.possible_spam ? 'Yes' : 'No'}
-- Security Score: ${metadata?.security_score || 'Unknown'} (Verified Contract: ${metadata?.verified_contract ? 'Yes' : 'No'})
-
-### Holder Analysis (from /holders endpoint)
+  // 确定是否为Solana链
+  const isSolana = chain === 'solana';
+  console.log(`[aiService] Processing ${isSolana ? 'Solana' : chain} chain token`);
+  
+  // 准备交易活动的时间序列数据 (选择关键时间段: 30m, 1h, 4h, 24h)
+  const timeframes = ['30m', '1h', '4h', '24h'];
+  
+  // 提取价格变化百分比数据
+  const priceChanges = {};
+  if (tokenAnalytics?.priceChangePercent) {
+    timeframes.forEach(tf => {
+      if (tokenAnalytics.priceChangePercent[tf]) {
+        priceChanges[tf] = tokenAnalytics.priceChangePercent[tf];
+      }
+    });
+  }
+  
+  // 提取交易量数据 (买入和卖出)
+  const tradeVolumes = {};
+  if (tokenAnalytics?.buyVolumeUSD && tokenAnalytics?.sellVolumeUSD) {
+    timeframes.forEach(tf => {
+      const buyVol = tokenAnalytics.buyVolumeUSD[tf] || 'N/A';
+      const sellVol = tokenAnalytics.sellVolumeUSD[tf] || 'N/A';
+      if (buyVol !== 'N/A' || sellVol !== 'N/A') {
+        tradeVolumes[tf] = { buy: buyVol, sell: sellVol };
+      }
+    });
+  }
+  
+  // 提取钱包活动数据
+  const walletActivity = {};
+  if (tokenAnalytics?.uniqueWallets && tokenAnalytics?.uniqueWalletsChangePercent) {
+    timeframes.forEach(tf => {
+      const count = tokenAnalytics.uniqueWallets[tf];
+      const change = tokenAnalytics.uniqueWalletsChangePercent[tf];
+      if (count || change) {
+        walletActivity[tf] = { count, change };
+      }
+    });
+  }
+  
+  // 提取交易计数数据
+  const tradeCounts = {};
+  if (tokenAnalytics?.buyCounts && tokenAnalytics?.sellCounts) {
+    timeframes.forEach(tf => {
+      const buys = tokenAnalytics.buyCounts[tf];
+      const sells = tokenAnalytics.sellCounts[tf];
+      if (buys || sells) {
+        tradeCounts[tf] = { buys, sells };
+      }
+    });
+  }
+  
+  // 根据链类型准备持有者信息
+  let holderInfoEN = '';
+  let holderInfoZH = '';
+  
+  if (isSolana) {
+    // 对于Solana链，总持有者数量已移至核心信息模块，此处不再单独生成持有者信息模块
+    holderInfoEN = ''; // 设置为空字符串
+    holderInfoZH = ''; // 设置为空字符串
+  } else {
+    // 对于其他链(如BSC)，包含完整的持有者统计信息
+    holderInfoEN = `### Holder Analysis (from /holders endpoint)
 - Total Holders: ${holderStats?.totalHolders || 'Unknown'}
 - 30d Holder Change: ${holderStats?.holderChange?.['30d']?.changePercent || 0}%
 - Top 10 Supply %: ${holderStats?.holderSupply?.top10?.supplyPercent || 'Unknown'}%
@@ -277,38 +332,9 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map(([method, count]) => `${method}: ${count}`)
-    .join(', ') : 'Unknown'}
-
-### Trading Activity
-- 24h Buyers/Sellers: ${tokenAnalytics?.totalBuyers?.['24h'] || 0} / ${tokenAnalytics?.totalSellers?.['24h'] || 0}
-- 24h Buy/Sell Orders: ${tokenAnalytics?.totalBuys?.['24h'] || 0} / ${tokenAnalytics?.totalSells?.['24h'] || 0}
-- Top Trader: ${topTraders?.[0] ? 
-    `Trade Count: ${topTraders[0].trade}, Buy/Sell: ${topTraders[0].tradeBuy}/${topTraders[0].tradeSell}, ${
-        topTraders[0].tags?.length ? 'Tags: ' + topTraders[0].tags.join(', ') : ''
-    }` : 'No data'}
-
-### Community Links
-${metadata?.social_links ? Object.entries(metadata.social_links)
-    .filter(([key, value]) => value && key !== 'moralis')
-    .map(([key, value]) => `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
-    .join('\n') : '- No community links data'}
-
-Based on all the information above, provide an overall fundamental assessment **in English**. Focus on identifying the 1-2 most significant potential risks and 1-2 key opportunities by *connecting insights* from different data sections (e.g., holder concentration + trading data; security score + market cap). Justify these points clearly. Regarding community links, only note their presence and do not infer activity levels solely from them; correlate with holder/trader data cautiously if applicable. **Critically evaluate 'Trading Activity': consider the \`Top Trader\` tags. High transaction volume or counts dominated by bots (\`sniper-bot\`, \`bot\`) may indicate artificial liquidity or manipulation risk, NOT necessarily genuine market interest; explicitly correlate this finding with holder concentration or other risk factors.** Avoid simply summarizing each section and strive for insightful judgment based on the combined data.`;
-
-  // 构建中文版本的prompt
-  const promptZH = `请基于以下提供的代币数据，生成一段简洁（300-400字）、综合性的基本盘分析。请融合对各方面信息的考量，不要逐条罗列分析点。**请使用中文回答**。
-
-### 代币核心信息
-- 名称/符号: ${tokenOverview.name} (${tokenOverview.symbol})
-- 价格: ${tokenOverview.priceFormatted} (24h 变化: ${tokenOverview.priceChange24h ?? 'N/A'})
-- 流通供应量: ${tokenOverview.circulatingSupplyFormatted}
-- LP 流动性: ${tokenOverview.liquidityFormatted ?? 'N/A'}
-- 市值: ${tokenOverview.marketCapFormatted ?? 'N/A'}
-- 完全稀释估值 (FDV): ${tokenOverview.fdvFormatted ?? 'N/A'}
-- 可能为垃圾币: ${metadata?.possible_spam ? '是' : '否'}
-- 安全评分: ${metadata?.security_score || '未知'} (合约已验证: ${metadata?.verified_contract ? '是' : '否'})
-
-### 持有者分析 (来自 /holders 端点)
+    .join(', ') : 'Unknown'}`;
+    
+    holderInfoZH = `### 持有者分析 (来自 /holders 端点)
 - 总持有者: ${holderStats?.totalHolders || '未知'}
 - 30天持有者变化: ${holderStats?.holderChange?.['30d']?.changePercent || 0}%
 - Top 10 持仓占比: ${holderStats?.holderSupply?.top10?.supplyPercent || '未知'}%
@@ -318,15 +344,159 @@ Based on all the information above, provide an overall fundamental assessment **
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map(([method, count]) => `${method}: ${count}`)
-    .join(', ') : '未知'}
+    .join(', ') : '未知'}`;
+  }
+  
+  // 处理顶级交易者数据 (最多10名)
+  let topTradersInfoEN = '';
+  let topTradersInfoZH = '';
+  
+  // 帮助函数：格式化地址为掩码形式
+  const maskAddress = (address) => {
+    if (!address || typeof address !== 'string') return 'unknown';
+    if (address.length <= 8) return address;
+    return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
+  };
+  
+  if (topTraders) {
+    // 确定要处理的交易者数组
+    let tradersArray = [];
+    
+    // 处理可能的不同数据结构
+    if (Array.isArray(topTraders)) {
+      tradersArray = topTraders;
+    } else if (topTraders.items && Array.isArray(topTraders.items)) {
+      tradersArray = topTraders.items;
+    }
+    
+    // 限制为最多10名交易者
+    const limitedTraders = tradersArray.slice(0, 10);
+    
+    if (limitedTraders.length > 0) {
+      // 英文版顶级交易者信息
+      topTradersInfoEN = `### Top Traders (up to 10)\n`;
+      
+      limitedTraders.forEach((trader, index) => {
+        topTradersInfoEN += `- Trader ${index + 1} (Address: ${maskAddress(trader.address)}): Total: ${trader.total.amountUSDFormatted}, Trades: ${trader.total.count} (Buy/Sell: ${trader.buy.count}/${trader.sell.count}), Tags: ${trader.tags?.join(', ') || 'None'}\n`;
+      });
+      
+      // 中文版顶级交易者信息
+      topTradersInfoZH = `### 顶级交易者 (最多10个)\n`;
+      
+      limitedTraders.forEach((trader, index) => {
+        topTradersInfoZH += `- 交易者 ${index + 1} (地址: ${maskAddress(trader.address)}): 总额: ${trader.total.amountUSDFormatted}, 总次数: ${trader.total.count} (买/卖: ${trader.buy.count}/${trader.sell.count}), 标签: ${trader.tags?.join(', ') || '无'}\n`;
+      });
+    } else {
+      topTradersInfoEN = `### Top Traders\nNo valid top trader data available for this token.`;
+      topTradersInfoZH = `### 顶级交易者\n此代币当前无有效的顶级交易者数据。`;
+    }
+  } else {
+    topTradersInfoEN = `### Top Traders\nNo valid top trader data available for this token.`;
+    topTradersInfoZH = `### 顶级交易者\n此代币当前无有效的顶级交易者数据。`;
+  }
+  
+  console.log("DEBUG INSTRUCTION 3 (aiAnalysisService.js): Constructed topTradersInfoEN:", topTradersInfoEN);
+  console.log("DEBUG INSTRUCTION 3 (aiAnalysisService.js): Constructed topTradersInfoZH:", topTradersInfoZH);
+  
+  // 为 Solana 链准备总持有者数量信息（英文版）
+  const solanaHoldersTotalEN = isSolana ? `- Total Holders: ${holderStats?.totalHolders || 'Unknown'}` : '';
+  
+  // 为 Solana 链准备总持有者数量信息（中文版）
+  const solanaHoldersTotalZH = isSolana ? `- 总持有者数量: ${holderStats?.totalHolders || '暂无数据'}` : '';
+  
+  // 构建英文版本的prompt
+  const promptEN = `Please provide a concise (300-400 words) integrated basic analysis **in English** based on the following token data. Please merge insights from all aspects and do not list analysis points one by one.
+
+### Token Core Info
+- Name/Symbol: ${tokenOverview.name} (${tokenOverview.symbol})
+- Price: ${tokenOverview.priceFormatted} (24h Change: ${tokenOverview.priceChange24h ?? 'N/A'})
+- Circulating Supply: ${tokenOverview.circulatingSupplyFormatted}
+${tokenOverview.circulationRatio !== null ? `- Circulation Ratio: ${tokenOverview.circulationRatio}%` : ''}
+- LP Liquidity: ${tokenOverview.liquidityFormatted ?? 'N/A'}
+- Market Cap: ${tokenOverview.marketCapFormatted ?? 'N/A'}
+- FDV: ${tokenOverview.fdvFormatted ?? 'N/A'}
+${solanaHoldersTotalEN ? `${solanaHoldersTotalEN}` : ''}
+- Possible Spam: ${metadata?.possible_spam ? 'Yes' : 'No'}
+- Security Score: ${metadata?.security_score || 'Unknown'} (Verified Contract: ${metadata?.verified_contract ? 'Yes' : 'No'})
+
+${holderInfoEN}
+
+### Trading Activity
+- 24h Buyers/Sellers: ${tokenAnalytics?.totalBuyers?.['24h'] || 0} / ${tokenAnalytics?.totalSellers?.['24h'] || 0}
+- 24h Buy/Sell Orders: ${tokenAnalytics?.totalBuys?.['24h'] || 0} / ${tokenAnalytics?.totalSells?.['24h'] || 0}
+${Object.keys(priceChanges).length > 0 ? `
+### Price Change % by Timeframe
+${Object.entries(priceChanges)
+  .map(([tf, value]) => `- ${tf}: ${value}`)
+  .join('\n')}` : ''}
+${Object.keys(tradeVolumes).length > 0 ? `
+### Trade Volume by Timeframe
+${Object.entries(tradeVolumes)
+  .map(([tf, { buy, sell }]) => `- ${tf}: Buy ${buy} / Sell ${sell}`)
+  .join('\n')}` : ''}
+${Object.keys(walletActivity).length > 0 ? `
+### Wallet Activity by Timeframe
+${Object.entries(walletActivity)
+  .map(([tf, { count, change }]) => `- ${tf}: ${count || 'N/A'} wallets (${change || 'N/A'} change)`)
+  .join('\n')}` : ''}
+${Object.keys(tradeCounts).length > 0 ? `
+### Trade Counts by Timeframe
+${Object.entries(tradeCounts)
+  .map(([tf, { buys, sells }]) => `- ${tf}: ${buys || 'N/A'} buys / ${sells || 'N/A'} sells`)
+  .join('\n')}` : ''}
+
+${topTradersInfoEN}
+
+### Community Links
+${metadata?.social_links ? Object.entries(metadata.social_links)
+    .filter(([key, value]) => value && key !== 'moralis')
+    .map(([key, value]) => `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
+    .join('\n') : '- No community links data'}
+
+Based on all the information above, provide an overall fundamental assessment **in English**. Focus on identifying the 1-2 most significant potential risks and 1-2 key opportunities by *connecting insights* from different data sections (e.g., holder concentration + trading data; security score + market cap). Justify these points clearly. Regarding community links, only note their presence and do not infer activity levels solely from them; correlate with holder/trader data cautiously if applicable. **Critically evaluate 'Trading Activity' and 'Top Traders': examine trader behavior patterns and tags. High transaction volume or counts dominated by bots (\`sniper-bot\`, \`bot\`) may indicate artificial liquidity or manipulation risk, NOT necessarily genuine market interest.** Evaluate the trading activity trends across different timeframes to identify short-term momentum or potential trend changes. Also consider the circulation ratio in relation to market cap and trading volume to assess potential supply-side risks. Avoid simply summarizing each section and strive for insightful judgment based on the combined data.`;
+
+  // 构建中文版本的prompt
+  const promptZH = `请基于以下提供的代币数据，生成一段简洁（300-400字）、综合性的基本盘分析。请融合对各方面信息的考量，不要逐条罗列分析点。**请使用中文回答**。
+
+### 代币核心信息
+- 名称/符号: ${tokenOverview.name} (${tokenOverview.symbol})
+- 价格: ${tokenOverview.priceFormatted} (24h 变化: ${tokenOverview.priceChange24h ?? 'N/A'})
+- 流通供应量: ${tokenOverview.circulatingSupplyFormatted}
+${tokenOverview.circulationRatio !== null ? `- 流通比例: ${tokenOverview.circulationRatio}%` : ''}
+- LP 流动性: ${tokenOverview.liquidityFormatted ?? 'N/A'}
+- 市值: ${tokenOverview.marketCapFormatted ?? 'N/A'}
+- 完全稀释估值 (FDV): ${tokenOverview.fdvFormatted ?? 'N/A'}
+${solanaHoldersTotalZH ? `${solanaHoldersTotalZH}` : ''}
+- 可能为垃圾币: ${metadata?.possible_spam ? '是' : '否'}
+- 安全评分: ${metadata?.security_score || '未知'} (合约已验证: ${metadata?.verified_contract ? '是' : '否'})
+
+${holderInfoZH}
 
 ### 交易分析
 - 24h 买家/卖家数: ${tokenAnalytics?.totalBuyers?.['24h'] || 0} / ${tokenAnalytics?.totalSellers?.['24h'] || 0}
 - 24h 买/卖次数: ${tokenAnalytics?.totalBuys?.['24h'] || 0} / ${tokenAnalytics?.totalSells?.['24h'] || 0}
-- Top Trader: ${topTraders?.[0] ? 
-    `交易次数: ${topTraders[0].trade}, 买/卖: ${topTraders[0].tradeBuy}/${topTraders[0].tradeSell}, ${
-        topTraders[0].tags?.length ? '标签: ' + topTraders[0].tags.join(', ') : ''
-    }` : '无数据'}
+${Object.keys(priceChanges).length > 0 ? `
+### 各时间段价格变化百分比
+${Object.entries(priceChanges)
+  .map(([tf, value]) => `- ${tf}: ${value}`)
+  .join('\n')}` : ''}
+${Object.keys(tradeVolumes).length > 0 ? `
+### 各时间段交易量
+${Object.entries(tradeVolumes)
+  .map(([tf, { buy, sell }]) => `- ${tf}: 买入 ${buy} / 卖出 ${sell}`)
+  .join('\n')}` : ''}
+${Object.keys(walletActivity).length > 0 ? `
+### 各时间段钱包活动
+${Object.entries(walletActivity)
+  .map(([tf, { count, change }]) => `- ${tf}: ${count || 'N/A'} 钱包数 (${change || 'N/A'} 变化)`)
+  .join('\n')}` : ''}
+${Object.keys(tradeCounts).length > 0 ? `
+### 各时间段交易次数
+${Object.entries(tradeCounts)
+  .map(([tf, { buys, sells }]) => `- ${tf}: ${buys || 'N/A'} 买入 / ${sells || 'N/A'} 卖出`)
+  .join('\n')}` : ''}
+
+${topTradersInfoZH}
 
 ### 社区链接
 ${metadata?.social_links ? Object.entries(metadata.social_links)
@@ -334,7 +504,7 @@ ${metadata?.social_links ? Object.entries(metadata.social_links)
     .map(([key, value]) => `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
     .join('\n') : '- 无社区链接数据'}
 
-根据以上所有信息，请给出整体的基本面评估。**请用中文回答**。请着重于通过**关联不同维度的数据**（例如，结合持有者集中度与交易数据；结合安全评分与市值等）来识别 1-2 个最主要的**潜在风险**和 1-2 个**关键机会**，并清晰阐述判断依据。关于社区链接，仅需提及存在与否，**切勿**仅凭链接推断社区活跃度或情绪；如果适用，可谨慎地将持有者增长或交易者数量多作为社区兴趣的*间接*指标进行关联。**请批判性地评估'交易分析'数据：务必考虑 Top Trader 的标签（特别是 \`sniper-bot\`, \`bot\`）。由机器人主导的高频交易或大量的买卖次数，可能暗示人为流动性或操纵风险，而*不一定*代表真实的市场兴趣；请将此发现与持有者集中度或其他风险因素明确关联。**最终评估应避免简单罗列各部分结论，力求提供基于全局信息的、**有洞察力的判断**。`;
+根据以上所有信息，请给出整体的基本面评估。**请用中文回答**。请着重于通过**关联不同维度的数据**（例如，结合持有者集中度与交易数据；结合安全评分与市值等）来识别 1-2 个最主要的**潜在风险**和 1-2 个**关键机会**，并清晰阐述判断依据。关于社区链接，仅需提及存在与否，**切勿**仅凭链接推断社区活跃度或情绪；如果适用，可谨慎地将持有者增长或交易者数量多作为社区兴趣的*间接*指标进行关联。**请批判性地评估'交易分析'和'顶级交易者'数据：分析交易者行为模式和标签。由机器人主导的高频交易或大量的买卖次数（标签含'sniper-bot'或'bot'），可能暗示人为流动性或操纵风险，而*不一定*代表真实的市场兴趣。**考察不同时间段的交易活动趋势，识别短期动量或潜在趋势变化。同时，分析流通比例与市值和交易量的关系，评估供应侧的潜在风险。最终评估应避免简单罗列各部分结论，力求提供基于全局信息的、**有洞察力的判断**。`;
 
   // 根据请求的语言选择相应的prompt
   const finalPrompt = lang === 'en' ? promptEN : promptZH;
@@ -348,6 +518,9 @@ ${metadata?.social_links ? Object.entries(metadata.social_links)
     
     if (result.success) {
       console.log('[aiService] generateBasicAnalysis finished, returning successful result.');
+      // Add more detailed logging
+      console.log('[aiService] Final AI analysis length:', result.analysis ? result.analysis.length : 0);
+      console.log('[aiService] Final AI analysis first 100 chars:', result.analysis ? result.analysis.substring(0, 100) : 'N/A');
       return result;
     } else {
       console.error('[aiService] generateBasicAnalysis finished with error:', result.error);
