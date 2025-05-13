@@ -1,6 +1,7 @@
 const dotenv = require("dotenv");
 const path = require("path");
 const axios = require("axios");
+const { formatPercentageForAI } = require("../utils/formatters");
 
 dotenv.config({ path: path.resolve(__dirname, '../', '.env') });
 
@@ -156,6 +157,25 @@ Please ensure your analysis maintains internal consistency. If you identify sign
       };
       
       console.log(`[aiService] Preparing to call ${baseUrl}/chat/completions with model ${modelName}`);
+      
+      // --- 在 axios.post 调用Grok API之前 ---
+      console.log("========== Grok API Request Payload START ==========");
+      console.log("Grok API Model:", payload.model); // 或者 modelName 变量
+      console.log("--- Grok API System Message ---");
+      console.log(JSON.stringify(payload.messages[0], null, 2)); // 假设第一个消息是 system role
+      console.log("--- Grok API User Prompt (Full Content) ---");
+      console.log(JSON.stringify(payload.messages[1], null, 2)); // 假设第二个消息是 user role
+      // 为了确保看到完整的 user prompt 字符串内容，而不是被截断的JSON对象：
+      if (payload.messages && payload.messages.length > 1 && payload.messages[1] && typeof payload.messages[1].content === 'string') {
+          console.log("--- Grok API User Prompt (Raw String Content) ---");
+          console.log(payload.messages[1].content);
+      }
+      console.log("--- Grok API Full Payload (excluding messages for brevity if already printed) ---");
+      const payloadToLog = { ...payload };
+      delete payloadToLog.messages; // 可选：如果上面已详细打印，这里可以省略以减少日志体积
+      console.log(JSON.stringify(payloadToLog, null, 2));
+      console.log("========== Grok API Request Payload END ==========");
+      
       console.log('[aiService] Calling external AI API...');
       
       const response = await axios.post(`${baseUrl}/chat/completions`, payload, requestConfig);
@@ -263,15 +283,17 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   const isSolana = chain === 'solana';
   console.log(`[aiService] Processing ${isSolana ? 'Solana' : chain} chain token`);
   
-  // 准备交易活动的时间序列数据 (选择关键时间段: 30m, 1h, 4h, 24h)
-  const timeframes = ['30m', '1h', '4h', '24h'];
+  // 所有标准时间维度: 1m, 30m, 2h, 6h, 12h, 24h
+  const timeframes = ['1m', '30m', '2h', '6h', '12h', '24h'];
   
   // 提取价格变化百分比数据
   const priceChanges = {};
   if (tokenAnalytics?.priceChangePercent) {
     timeframes.forEach(tf => {
-      if (tokenAnalytics.priceChangePercent[tf]) {
-        priceChanges[tf] = tokenAnalytics.priceChangePercent[tf];
+      // 直接使用预格式化的字符串，而不是再次格式化
+      const dataPoint = tokenAnalytics.priceChangePercent[tf];
+      if (dataPoint) {
+        priceChanges[tf] = dataPoint.value || 'N/A';
       }
     });
   }
@@ -280,8 +302,9 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   const tradeVolumes = {};
   if (tokenAnalytics?.buyVolumeUSD && tokenAnalytics?.sellVolumeUSD) {
     timeframes.forEach(tf => {
-      const buyVol = tokenAnalytics.buyVolumeUSD[tf] || 'N/A';
-      const sellVol = tokenAnalytics.sellVolumeUSD[tf] || 'N/A';
+      // 直接使用预格式化的字符串，而不是再次格式化
+      const buyVol = tokenAnalytics.buyVolumeUSD[tf]?.value || 'N/A';
+      const sellVol = tokenAnalytics.sellVolumeUSD[tf]?.value || 'N/A';
       if (buyVol !== 'N/A' || sellVol !== 'N/A') {
         tradeVolumes[tf] = { buy: buyVol, sell: sellVol };
       }
@@ -292,9 +315,10 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   const walletActivity = {};
   if (tokenAnalytics?.uniqueWallets && tokenAnalytics?.uniqueWalletsChangePercent) {
     timeframes.forEach(tf => {
-      const count = tokenAnalytics.uniqueWallets[tf];
-      const change = tokenAnalytics.uniqueWalletsChangePercent[tf];
-      if (count || change) {
+      // 直接使用预格式化的字符串，而不是再次格式化
+      const count = tokenAnalytics.uniqueWallets[tf]?.value || 'N/A';
+      const change = tokenAnalytics.uniqueWalletsChangePercent[tf]?.value || 'N/A';
+      if (count !== 'N/A' || change !== 'N/A') {
         walletActivity[tf] = { count, change };
       }
     });
@@ -304,9 +328,10 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   const tradeCounts = {};
   if (tokenAnalytics?.buyCounts && tokenAnalytics?.sellCounts) {
     timeframes.forEach(tf => {
-      const buys = tokenAnalytics.buyCounts[tf];
-      const sells = tokenAnalytics.sellCounts[tf];
-      if (buys || sells) {
+      // 直接使用预格式化的字符串，而不是再次格式化
+      const buys = tokenAnalytics.buyCounts[tf]?.value || 'N/A';
+      const sells = tokenAnalytics.sellCounts[tf]?.value || 'N/A';
+      if (buys !== 'N/A' || sells !== 'N/A') {
         tradeCounts[tf] = { buys, sells };
       }
     });
@@ -421,9 +446,6 @@ ${solanaHoldersTotalEN ? `${solanaHoldersTotalEN}` : ''}
 
 ${holderInfoEN}
 
-### Trading Activity
-- 24h Buyers/Sellers: ${tokenAnalytics?.totalBuyers?.['24h'] || 0} / ${tokenAnalytics?.totalSellers?.['24h'] || 0}
-- 24h Buy/Sell Orders: ${tokenAnalytics?.totalBuys?.['24h'] || 0} / ${tokenAnalytics?.totalSells?.['24h'] || 0}
 ${Object.keys(priceChanges).length > 0 ? `
 ### Price Change % by Timeframe
 ${Object.entries(priceChanges)
@@ -472,9 +494,6 @@ ${solanaHoldersTotalZH ? `${solanaHoldersTotalZH}` : ''}
 
 ${holderInfoZH}
 
-### 交易分析
-- 24h 买家/卖家数: ${tokenAnalytics?.totalBuyers?.['24h'] || 0} / ${tokenAnalytics?.totalSellers?.['24h'] || 0}
-- 24h 买/卖次数: ${tokenAnalytics?.totalBuys?.['24h'] || 0} / ${tokenAnalytics?.totalSells?.['24h'] || 0}
 ${Object.keys(priceChanges).length > 0 ? `
 ### 各时间段价格变化百分比
 ${Object.entries(priceChanges)

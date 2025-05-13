@@ -23,7 +23,6 @@ async function _fetchSolanaTokenMetadata(address) {
             timeout: 30000
         });
         
-        console.log('--- RAW Birdeye Metadata Response Data (axios) ---:', JSON.stringify(response.data, null, 2));
         console.log(`[SolanaService] Metadata fetched successfully for ${address}`);
         
         return response.data?.data || {};
@@ -60,7 +59,11 @@ async function _fetchSolanaTokenOverview(address) {
             timeout: 30000
         });
         
-        console.log('--- RAW Birdeye Overview Response Data (axios) ---:', JSON.stringify(response.data, null, 2));
+        // 新增日志：打印原始Birdeye Token Overview响应
+        console.log("========== RAW Birdeye Token Overview/Price Response for " + address + " START ==========");
+        console.log(JSON.stringify(response?.data, null, 2));
+        console.log("========== RAW Birdeye Token Overview/Price Response for " + address + " END ==========");
+        
         console.log(`[SolanaService] Token overview fetched successfully for ${address}`);
         
         return response.data?.data || {};
@@ -89,7 +92,11 @@ async function _fetchSolanaMarketData(address) {
             timeout: 30000
         });
         
-        console.log('--- RAW Birdeye Market Response Data (axios) ---:', JSON.stringify(response.data, null, 2));
+        // 新增日志：打印原始Birdeye Market Data响应
+        console.log("========== RAW Birdeye Market Data Response for " + address + " START ==========");
+        console.log(JSON.stringify(response?.data, null, 2));
+        console.log("========== RAW Birdeye Market Data Response for " + address + " END ==========");
+        
         console.log(`[SolanaService] Market data fetched successfully for ${address}`);
         
         return response.data?.data || {};
@@ -122,7 +129,6 @@ async function _fetchSolanaHolders(address, limit = 100, offset = 0) {
             timeout: 30000
         });
         
-        console.log('--- RAW Birdeye Holders Response Data (axios) ---:', JSON.stringify(response.data, null, 2));
         console.log(`[SolanaService] Holders data fetched successfully for ${address}`);
         
         return response.data?.data?.items || [];
@@ -154,7 +160,11 @@ async function _fetchSolanaTopTraders(address) {
             timeout: 30000
         });
         
-        console.log('--- RAW Solana Top Traders Response (axios) ---:', JSON.stringify(response.data, null, 2));
+        // 新增日志：打印原始Birdeye Top Traders响应
+        console.log("========== RAW Birdeye Top Traders Response for " + address + " START ==========");
+        console.log(JSON.stringify(response?.data, null, 2));
+        console.log("========== RAW Birdeye Top Traders Response for " + address + " END ==========");
+        
         console.log(`[SolanaService] Top traders data fetched successfully for ${address}`);
         
         return response.data?.data?.items || [];
@@ -183,7 +193,6 @@ async function _fetchSolanaTradeData(address) {
             timeout: 30000
         });
         
-        console.log('--- RAW Birdeye Trade Data Response (axios) ---:', JSON.stringify(response.data, null, 2));
         console.log(`[SolanaService] Trade data fetched successfully for ${address}`);
         
         return response.data?.data || {};
@@ -274,8 +283,6 @@ async function getSolanaTokenDataBundle(address) {
         standardizedData = {};
 
         // 3a. 标准化 tokenOverview (V3 - Aligned with BSC, links moved to metadata)
-        console.log("[SolanaService] Starting tokenOverview standardization...");
-        
         // 修改: 检查源数据是否为空，如果为空则创建一个包含所有必要字段的默认值对象
         const overviewData = solana_birdeye_overview || {}; // 确保至少是空对象而不是null/undefined
         const metadata_raw = solana_birdeye_metadata || {}; // 确保至少是空对象而不是null/undefined
@@ -372,18 +379,11 @@ async function getSolanaTokenDataBundle(address) {
             const numCirculatingSupply = parseFloat(marketData?.circulating_supply || '0');
             const numTotalSupply = parseFloat(marketData?.total_supply || '0');
             
-            // 记录日志以便调试
-            console.log(`[SolanaService] Calculating circulation ratio with: circulating_supply=${numCirculatingSupply}, total_supply=${numTotalSupply}`);
-            
             if (!isNaN(numCirculatingSupply) && !isNaN(numTotalSupply) && numTotalSupply > 0) {
                 calculatedCirculationRatio = Math.round((numCirculatingSupply / numTotalSupply) * 100);
-                console.log(`[SolanaService] Calculated circulation ratio: ${calculatedCirculationRatio}%`);
             } else if (!isNaN(numCirculatingSupply) && numTotalSupply === 0 && numCirculatingSupply === 0) {
                 // 特殊情况：如果流通量和总供应量均为0，暂定流通比例为0
                 calculatedCirculationRatio = 0;
-                console.log(`[SolanaService] Both circulating and total supply are 0, setting circulation ratio to 0%`);
-            } else {
-                console.log(`[SolanaService] Unable to calculate circulation ratio: invalid or missing supply data`);
             }
             
             // 添加流通比例到overview对象
@@ -400,345 +400,689 @@ async function getSolanaTokenDataBundle(address) {
             // --- 赋值 ---
             standardizedData.tokenOverview = overview;
         }
-        
-        console.log("[SolanaService] Finished tokenOverview standardization.");
-        // --- tokenOverview 标准化逻辑结束 (3a) ---
 
         // 3c. 标准化 topTraders (Logic copied from BscService.js as Birdeye source is the same)
-        console.log("[SolanaService] Starting topTraders standardization..."); // 添加日志
-        // 确保输入是数组，如果不是则默认为空数组
-        const tradersInput = Array.isArray(solana_birdeye_topTraders) ? solana_birdeye_topTraders : [];
         if (!Array.isArray(solana_birdeye_topTraders)) {
              console.warn("[SolanaService] Raw topTraders data is not an array:", solana_birdeye_topTraders);
-        }
-
-        standardizedData.topTraders = tradersInput.map((trader) => {
-            // 确保 safeCurrencySuffix 函数可用 (从 formatters 导入)
-            const buyVolumeFormatted = typeof safeCurrencySuffix === 'function' ? safeCurrencySuffix(trader.volumeBuy) : trader.volumeBuy ?? null;
-            const sellVolumeFormatted = typeof safeCurrencySuffix === 'function' ? safeCurrencySuffix(trader.volumeSell) : trader.volumeSell ?? null;
-            const totalVolumeFormatted = typeof safeCurrencySuffix === 'function' ? safeCurrencySuffix(trader.volume) : trader.volume ?? null;
-
-            // 对 trader 对象进行基本验证
+            standardizedData.topTraders = []; // 确保至少是空数组
+        } else {
+            // 实际数据处理逻辑
+            const standardizedTopTraders = [];
+            
+            for (const trader of solana_birdeye_topTraders) {
+                // 确保 trader 是有效对象 (健壮性检查)
             if (!trader || typeof trader !== 'object') {
                 console.warn("[SolanaService] Invalid trader object found in topTraders array:", trader);
-                return null; // 跳过无效条目或返回默认结构
-            }
-
-            return {
-                // 使用 'owner' 字段作为地址
-                address: trader.owner || 'N/A',
-                // 添加 API 返回的 tags
-                tags: trader.tags || [],
-                // 组织 buy 相关数据
-                buy: {
-                    count: trader.tradeBuy ?? null, // 使用 'tradeBuy' 作为次数
-                    amount: null, // API 未提供此数据
-                    amountUSDFormatted: buyVolumeFormatted, // 使用 'volumeBuy' 格式化为 USD
-                    price: null // API 未提供此数据
-                },
-                // 组织 sell 相关数据
-                sell: {
-                    count: trader.tradeSell ?? null, // 使用 'tradeSell' 作为次数
-                    amount: null,
-                    amountUSDFormatted: sellVolumeFormatted, // 使用 'volumeSell' 格式化为 USD
-                    price: null
-                },
-                // 组织 total 相关数据
-                total: {
-                    // 优先使用 'trade' 字段，否则计算买卖总和
-                    count: trader.trade ?? ((trader.tradeBuy ?? 0) + (trader.tradeSell ?? 0)),
-                    amount: null,
-                    amountUSDFormatted: totalVolumeFormatted // 使用 'volume' 格式化为 USD
+                    continue; // 跳过无效数据
                 }
+                
+                // 打印当前处理的trader对象，用于调试
+                console.log('[SolanaService] Processing trader:', JSON.stringify(trader, null, 2));
+                
+                // 尝试创建标准化对象
+                try {
+                    // 使用Birdeye API实际返回的字段名，处理扁平结构
+                    const standardizedTrader = {
+                        // 使用'owner'字段作为地址 (Birdeye API命名)
+                        address: trader.owner || trader.address || 'N/A',
+                        
+                        // 总计数据
+                        total: {
+                            // 总数量字段在API中不存在，设为null
+                            amount: null,
+                            // 总交易量USD
+                            amountUSD: parseFloat(trader.volume) || 0,
+                            // 格式化USD金额
+                            amountUSDFormatted: safeCurrencySuffix(trader.volume) || '$0',
+                            // 总交易次数
+                            count: parseInt(trader.trade) || 0
+                        },
+                        
+                        // 买入数据
+                buy: {
+                            // 买入数量字段在API中不存在，设为null
+                            amount: null,
+                            // 买入交易量USD
+                            amountUSD: parseFloat(trader.volumeBuy) || 0,
+                            // 格式化买入USD金额
+                            amountUSDFormatted: safeCurrencySuffix(trader.volumeBuy) || '$0',
+                            // 买入次数
+                            count: parseInt(trader.tradeBuy) || 0
+                        },
+                        
+                        // 卖出数据
+                sell: {
+                            // 卖出数量字段在API中不存在，设为null
+                    amount: null,
+                            // 卖出交易量USD
+                            amountUSD: parseFloat(trader.volumeSell) || 0,
+                            // 格式化卖出USD金额
+                            amountUSDFormatted: safeCurrencySuffix(trader.volumeSell) || '$0',
+                            // 卖出次数
+                            count: parseInt(trader.tradeSell) || 0
+                        },
+                        
+                        // 标签
+                        tags: Array.isArray(trader.tags) ? trader.tags : []
+                    };
+                    
+                    standardizedTopTraders.push(standardizedTrader);
+                } catch (e) {
+                    console.error(`Error standardizing trader data: ${e.message}`);
+                    // 跳过出错的条目但继续处理其他条目
+                }
+            }
+            
+            standardizedData.topTraders = standardizedTopTraders;
+        }
+
+        // 3d. 标准化 holderStats (轻量级版本 - 只有 % 变化, 时间跨度: 4h, 30m, etc.)
+        if (isOverviewEmpty) {
+            console.warn("[SolanaService] overviewData is empty or null, using default empty holderStats structure.");
+            // 创建默认空的 holderStats 结构
+            standardizedData.holderStats = {
+                totalHolders: 0,
+                holderChange: {},
+                holderSupply: {},
+                holderDistribution: {},
+                holdersByAcquisition: {}
             };
-        }).filter(trader => trader !== null); // 过滤掉 map 过程中可能产生的 null 值
-
-        console.log("[SolanaService] Finished topTraders standardization. Count:", standardizedData.topTraders.length); // 添加日志
-        // --- topTraders 标准化逻辑结束 (3c) ---
-
-        // 3d. 生成 holderStats 数据 (V4 - Using Birdeye Overview Timeframes, Percent Change Only)
-        console.log("[SolanaService] Starting holderStats standardization (Birdeye timeframes, % change only)...");
-        
-        // 使用前面已定义的变量，确保它是对象而非null
-        // const overviewDataForStats = solana_birdeye_overview; // 旧版本代码
-
-        // 创建默认的holderStats结构，包含所有必要字段的空值
-        const holderStats = { // 使用 any 或具体的 HolderStats 类型
-            totalHolders: null,
-            holderChange: { // 新的时间维度结构
-                '30m': { change: null, changePercent: null },
-                '1h':  { change: null, changePercent: null },
-                '2h':  { change: null, changePercent: null },
-                '4h':  { change: null, changePercent: null },
-                '8h':  { change: null, changePercent: null },
-                '24h': { change: null, changePercent: null }
-                // 不再包含 5min, 6h, 7d, 3d, 30d
-            },
-            // 其他部分保持为空或默认，因为 overview 不提供这些数据
+        } else {
+            const holderStats = {
+                totalHolders: 0,
+                holderChange: {},
             holderSupply: {},
             holderDistribution: {},
             holdersByAcquisition: {}
         };
 
-        // 只有当overviewData有效时才尝试填充数据
-        if (!isOverviewEmpty) {
-            // 填充 totalHolders
+            // 从 overview 中提取总持有者数量
             if (typeof overviewData.holder === 'number' && !isNaN(overviewData.holder)) {
                 holderStats.totalHolders = overviewData.holder;
-            } else if (overviewData.holder !== null && overviewData.holder !== undefined) {
+            } else if (typeof overviewData.holder === 'string' && !isNaN(parseInt(overviewData.holder, 10))) {
+                holderStats.totalHolders = parseInt(overviewData.holder, 10);
+            } else {
                  console.warn(`[SolanaService] Invalid value for totalHolders from overview: ${overviewData.holder}`);
+                holderStats.totalHolders = 0;
             }
-
-            // 定义 Birdeye overview 中的 key 和我们新结构中的 key 的映射关系
-            const timeMap = [
-                { key: '30m', overviewKey: 'uniqueWallet30mChangePercent'},
-                { key: '1h',  overviewKey: 'uniqueWallet1hChangePercent'},
-                { key: '2h',  overviewKey: 'uniqueWallet2hChangePercent'},
-                { key: '4h',  overviewKey: 'uniqueWallet4hChangePercent'},
-                { key: '8h',  overviewKey: 'uniqueWallet8hChangePercent'},
-                { key: '24h', overviewKey: 'uniqueWallet24hChangePercent'}
+            
+            // 在处理前先打印完整的overviewData供调试
+            console.log("[SolanaService] Raw overviewData for holderStats:", JSON.stringify(overviewData, null, 2));
+            
+            // 标准化 Birdeye 时间维度: 30m, 1h, 2h, 4h, 24h 的持有者变化百分比
+            // 检查 Birdeye API 实际返回的字段，根据实际字段调整映射
+            // 尝试常见的不同命名方式
+            const possibleHolderChangeKeys = [
+                { finalKey: '30m', patterns: ['holderPctChange30m', 'holderChange30mPercent', 'holder30mChangePercent', 'holderChangePercent30m'] },
+                { finalKey: '1h', patterns: ['holderPctChange1h', 'holderChange1hPercent', 'holder1hChangePercent', 'holderChangePercent1h'] },
+                { finalKey: '2h', patterns: ['holderPctChange2h', 'holderChange2hPercent', 'holder2hChangePercent', 'holderChangePercent2h'] },
+                { finalKey: '4h', patterns: ['holderPctChange4h', 'holderChange4hPercent', 'holder4hChangePercent', 'holderChangePercent4h'] },
+                { finalKey: '24h', patterns: ['holderPctChange24h', 'holderChange24hPercent', 'holder24hChangePercent', 'holderChangePercent24h'] }
             ];
-
-            // 遍历映射关系，填充 changePercent
-            timeMap.forEach(map => {
-                const percentVal = overviewData[map.overviewKey];
-                // 确保我们的结构中有这个时间段的 key
-                if (holderStats.holderChange.hasOwnProperty(map.key)) {
-                    // 检查值是否有效数字
-                    if (percentVal !== null && percentVal !== undefined && !isNaN(parseFloat(String(percentVal)))) {
-                        holderStats.holderChange[map.key].changePercent = parseFloat(String(percentVal));
-                    } else {
-                        // 如果值无效或不存在，保留为 null
-                        holderStats.holderChange[map.key].changePercent = null;
-                        // 仅当值存在但无效时打印警告
-                        if (percentVal !== null && percentVal !== undefined) {
-                             console.warn(`[SolanaService] Invalid value for ${map.overviewKey}: ${percentVal}`);
-                }
-            }
-                    // 绝对变化值 'change' 保持为 null
-                    holderStats.holderChange[map.key].change = null;
-                }
-            });
-        } else {
-            console.warn("[SolanaService] overviewData is empty or null, using default empty holderStats structure.");
-        }
-
-        standardizedData.holderStats = holderStats;
-        console.log("[SolanaService] Finished holderStats standardization (using overview data, Birdeye timeframes, % change only).");
-        // --- holderStats 标准化逻辑结束 (3d) ---
-
-        // 3e. 标准化 tokenAnalytics (using data from solana_birdeye_overview)
-        console.log("[SolanaService] Starting tokenAnalytics standardization...");
-        
-        // 创建带有默认空值的完整tokenAnalytics结构，包含所有9类指标和6个时间段
-        const tokenAnalytics = {
-            // 1.价格变化百分比
-            priceChangePercent: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 2.独立钱包数量
-            uniqueWallets: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 3.独立钱包数量变化百分比
-            uniqueWalletsChangePercent: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 4.买入次数
-            buyCounts: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 5.卖出次数
-            sellCounts: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 6.总交易次数变化百分比
-            tradeCountChangePercent: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 7.买入量(USD)
-            buyVolumeUSD: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 8.卖出量(USD)
-            sellVolumeUSD: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            },
-            // 9.总交易量变化百分比
-            volumeChangePercent: { 
-                '30m': null, 
-                '1h': null, 
-                '2h': null, 
-                '4h': null, 
-                '8h': null, 
-                '24h': null 
-            }
-        };
-
-        // 只有当overviewData有效时才尝试填充数据
-        if (!isOverviewEmpty) {
-            const timeframes = ['30m', '1h', '2h', '4h', '8h', '24h']; // 定义所有需要的时间段
-
-            timeframes.forEach(tf => {
-                // Helper to safely get numeric value or null
-                const getNum = (key) => {
-                    const val = overviewData[key];
-                    if (typeof val === 'number' && !isNaN(val)) return val;
-                    if (typeof val === 'string' && val.trim() !== '' && !isNaN(parseFloat(val))) return parseFloat(val);
-                    // Log only if value exists but is invalid, ignore null/undefined
-                    if (val !== null && val !== undefined) {
-                         console.warn(`[SolanaService] Invalid numeric value for ${key}: ${val}`);
-                    }
-                    return null;
+            
+            // 处理每个时间范围
+            possibleHolderChangeKeys.forEach(keyMapping => {
+                // 初始化该时间段的对象
+                holderStats.holderChange[keyMapping.finalKey] = {
+                    count: null,           // Solana Birdeye 不提供该数据，置空
+                    countFormatted: 'N/A', // Solana Birdeye 不提供该数据，置空
+                    changePercent: null    // 将尝试从下面的任一字段中获取
                 };
-
-                // 1. 价格变化百分比 - 使用formatPercentage格式化
-                tokenAnalytics.priceChangePercent[tf] = formatPercentage(getNum(`priceChange${tf}Percent`), 2);
                 
-                // 2. 独立钱包数量 - 使用processCountValue格式化，确保<1000的值为整数
-                tokenAnalytics.uniqueWallets[tf] = processCountValue(getNum(`uniqueWallet${tf}`));
-                
-                // 3. 独立钱包数量变化百分比 - 使用formatPercentage格式化
-                tokenAnalytics.uniqueWalletsChangePercent[tf] = formatPercentage(getNum(`uniqueWallet${tf}ChangePercent`), 2);
-                
-                // 4. 买入次数 - 使用processCountValue格式化，确保<1000的值为整数
-                tokenAnalytics.buyCounts[tf] = processCountValue(getNum(`buy${tf}`));
-                
-                // 5. 卖出次数 - 使用processCountValue格式化，确保<1000的值为整数
-                tokenAnalytics.sellCounts[tf] = processCountValue(getNum(`sell${tf}`));
-                
-                // 6. 总交易次数变化百分比 - 使用formatPercentage格式化
-                tokenAnalytics.tradeCountChangePercent[tf] = formatPercentage(getNum(`trade${tf}ChangePercent`), 2);
-                
-                // 7. 买入量(USD) - 使用safeCurrencySuffix格式化
-                tokenAnalytics.buyVolumeUSD[tf] = safeCurrencySuffix(getNum(`vBuy${tf}USD`), 1);
-                
-                // 8. 卖出量(USD) - 使用safeCurrencySuffix格式化
-                tokenAnalytics.sellVolumeUSD[tf] = safeCurrencySuffix(getNum(`vSell${tf}USD`), 1);
-                
-                // 9. 总交易量变化百分比 - 使用formatPercentage格式化
-                tokenAnalytics.volumeChangePercent[tf] = formatPercentage(getNum(`v${tf}ChangePercent`), 2);
+                // 尝试所有可能的字段名
+                let found = false;
+                for (const pattern of keyMapping.patterns) {
+                    const percentVal = overviewData[pattern];
+                    
+                    // 如果找到有效值，则处理并停止查找
+                    if (percentVal !== undefined) {
+                        found = true;
+                        
+                        // 尝试转换为数字并赋值给 changePercent
+                        if (typeof percentVal === 'number' && !isNaN(percentVal)) {
+                            holderStats.holderChange[keyMapping.finalKey].changePercent = percentVal;
+                        } else if (typeof percentVal === 'string' && !isNaN(parseFloat(percentVal))) {
+                            holderStats.holderChange[keyMapping.finalKey].changePercent = parseFloat(percentVal);
+                        } else if (percentVal !== null && percentVal !== undefined && percentVal !== '') {
+                            console.warn(`[SolanaService] Invalid value for ${pattern}: ${percentVal}`);
+                        }
+                        
+                        // 找到有效字段后不再查找其他可能的字段名
+                        break;
+                    }
+                }
             });
-        } else {
-            console.warn("[SolanaService] overviewData is empty or null, using default empty tokenAnalytics structure.");
+            
+            // 打印最终处理结果
+            console.log("[SolanaService] Final holderStats:", JSON.stringify(holderStats, null, 2));
+            
+            standardizedData.holderStats = holderStats;
         }
 
-        standardizedData.tokenAnalytics = tokenAnalytics;
-        console.log("[SolanaService] Finished tokenAnalytics standardization.");
-        // --- tokenAnalytics 标准化逻辑结束 (3e) ---
+        // 3e. 标准化 tokenAnalytics 数据 (统一时间维度: 1m, 30m, 2h, 6h, 12h, 24h)
+        if (isOverviewEmpty) {
+            console.warn("[SolanaService] overviewData is empty or null, using default empty tokenAnalytics structure.");
+            // 创建默认空的 tokenAnalytics 结构
+            standardizedData.tokenAnalytics = {
+                priceChangePercent: {},
+                uniqueWallets: {},
+                uniqueWalletsChangePercent: {},
+                buyCounts: {},
+                sellCounts: {},
+                tradeCountChangePercent: {},
+                volumeChangePercent: {},
+                totalBuys: { '24h': null },
+                totalSells: { '24h': null },
+                totalBuyers: { '24h': null },
+                totalSellers: { '24h': null },
+                buyVolumeUSD: {},
+                sellVolumeUSD: {}
+            };
+        } else {
+            const tokenAnalytics = {
+                priceChangePercent: {},
+                uniqueWallets: {},
+                uniqueWalletsChangePercent: {},
+                buyCounts: {},
+                sellCounts: {},
+                tradeCountChangePercent: {},
+                volumeChangePercent: {},
+                totalBuys: { '24h': null },
+                totalSells: { '24h': null },
+                totalBuyers: { '24h': null },
+                totalSellers: { '24h': null },
+                buyVolumeUSD: {},
+                sellVolumeUSD: {}
+            };
+            
+            // 在处理前先打印完整的overviewData供调试
+            console.log("[SolanaService] Raw overviewData for tokenAnalytics:", JSON.stringify(overviewData, null, 2));
+            
+            // 更新为新的标准时间维度: 1m, 30m, 2h, 6h, 12h, 24h
+            // 保留原始时间维度数组，用于字段映射定义
+            const timeFrames = ['1m', '30m', '2h', '6h', '12h', '24h']; 
+            
+            // 新增：扩展时间维度数组，包括备选维度
+            const allTimeFrames = ['1m', '30m', '2h', '4h', '6h', '8h', '12h', '24h'];
+            
+            // 新增：固定和动态维度的定义
+            const fixedTimeFrames = ['1m', '30m', '2h', '24h'];
+            const dynamicTimeFrames = [
+                { primary: '6h', fallback: '4h' },
+                { primary: '12h', fallback: '8h' }
+            ];
+            
+            // 打印原始数据中包含这些时间维度的所有键
+            for (const timeFrame of allTimeFrames) {
+                const keysWithTimeFrame = Object.keys(overviewData).filter(key => 
+                    key.toLowerCase().includes(timeFrame.toLowerCase())
+                );
+                if (keysWithTimeFrame.length > 0) {
+                    console.log(`[SolanaService] Keys containing ${timeFrame} in overviewData:`, keysWithTimeFrame);
+                }
+            }
+            
+            // 导入所需的格式化函数
+            const { formatPercentageForAI, safeNumberSuffix, safeCurrencySuffix } = require('../utils/formatters');
+            
+            // 定义辅助函数来处理百分比值 - 修改为返回格式化字符串
+            const processPercentageValue = (val, suffix, fieldName) => {
+                console.log(`[SolanaService] Processing ${fieldName}.${suffix}: ${val}, type: ${typeof val}`);
+                
+                // 如果值为null、undefined或空字符串，则返回"N/A"
+                if (val === null || val === undefined || val === '') {
+                    console.log(`[SolanaService] ${fieldName}.${suffix} is null/undefined/empty`);
+                    return 'N/A';
+                }
+                
+                // 如果已经是格式化的百分比字符串，验证后直接返回
+                if (typeof val === 'string' && val.endsWith('%')) {
+                    // 验证是否为有效数字+%的格式
+                    const numPart = val.replace('%', '');
+                    const isValidNum = !isNaN(parseFloat(numPart));
+                    if (isValidNum) {
+                        console.log(`[SolanaService] ${fieldName}.${suffix} already formatted: ${val}`);
+                        return val;
+                    }
+                }
+                
+                // 数值型和字符串型处理
+                let numericValue;
+                if (typeof val === 'string') {
+                    // 移除千分位分隔符和百分号
+                    const cleanStr = val.replace(/[,%]/g, '');
+                    numericValue = parseFloat(cleanStr);
+                } else {
+                    numericValue = val;
+                }
+                
+                // 检查是否为有效数字
+                if (typeof numericValue !== 'number' || isNaN(numericValue)) {
+                    console.log(`[SolanaService] ${fieldName}.${suffix} invalid after parsing: ${val} → ${numericValue}`);
+                    return 'N/A';
+                }
+                
+                console.log(`[SolanaService] ${fieldName}.${suffix} formatting: ${val} → ${numericValue.toFixed(2)}%`);
+                
+                // 使用formatPercentageForAI将数值格式化为百分比字符串
+                return formatPercentageForAI(numericValue, 2);
+            };
 
-        // 3f. 标准化 metadata (V3 - Aligned with BSC, includes links object)
-        console.log("[SolanaService] Starting metadata standardization...");
-        
-        // 重用前面定义的变量，不再重新声明
-        // isOverviewEmpty和isMetadataEmpty在tokenOverview标准化中已经声明过
-        
+            // 定义辅助函数来处理整数计数 - 修改为返回格式化字符串
+            const processCountValue = (val, suffix, fieldName) => {
+                console.log(`[SolanaService] Processing ${fieldName}.${suffix}: ${val}, type: ${typeof val}`);
+                
+                if (val === null || val === undefined || val === '') {
+                    return 'N/A'; // 直接返回"N/A"字符串
+                }
+                
+                // 处理数值型
+                if (typeof val === 'number' && !isNaN(val)) {
+                    const absValue = Math.max(0, val);
+                    if (absValue === 0) {
+                        return '0'; // 零值返回"0"字符串
+                    }
+                    return safeNumberSuffix(absValue); // 使用safeNumberSuffix格式化
+                }
+                
+                // 处理字符串型
+                if (typeof val === 'string') {
+                    // 检查是否已经是带K/M/B/T的格式化字符串
+                    if (/^[0-9,.]+[KMBTkmbt]$/.test(val.trim())) {
+                        return val; // 已经是格式化字符串则直接返回
+                    }
+                    
+                    // 尝试解析为数字
+                    const cleanVal = val.replace(/[^0-9.-]/g, '');
+                    if (cleanVal !== '') {
+                        const parsedValue = parseFloat(cleanVal);
+                        if (!isNaN(parsedValue)) {
+                            const absValue = Math.max(0, parsedValue);
+                            if (absValue === 0) {
+                                return '0'; // 零值返回"0"字符串
+                            }
+                            return safeNumberSuffix(absValue); // 使用safeNumberSuffix格式化
+                        }
+                    }
+                }
+                
+                return 'N/A'; // 默认返回"N/A"
+            };
+
+            // 定义辅助函数来处理USD金额 - 修改为返回格式化字符串
+            const processUsdValue = (val, suffix, fieldName) => {
+                console.log(`[SolanaService] Processing ${fieldName}.${suffix}: ${val}, type: ${typeof val}`);
+                
+                if (val === null || val === undefined || val === '') {
+                    return 'N/A'; // 直接返回"N/A"字符串
+                }
+                
+                // 纯数字字符串转换为数字
+                let numValue = val;
+                if (typeof val === 'string') {
+                    // 检查是否已经是格式化的USD字符串
+                    if (/^\$[0-9,.]+[KMBTkmbt]?$/.test(val.trim())) {
+                        return val; // 已经是格式化字符串则直接返回
+                    }
+                    
+                    const parsedValue = parseFloat(val);
+                    if (isNaN(parsedValue)) {
+                        return 'N/A';
+                    }
+                    numValue = parsedValue;
+                }
+                
+                // 确保金额为非负数
+                if (typeof numValue === 'number' && !isNaN(numValue)) {
+                    const absValue = Math.max(0, numValue);
+                    if (absValue === 0) {
+                        return '$0'; // 零值返回"$0"字符串
+                    }
+                    return safeCurrencySuffix(absValue); // 使用safeCurrencySuffix格式化
+                }
+                
+                return 'N/A'; // 默认返回"N/A"
+            };
+
+            // 修正字段映射，使用正确的Birdeye字段名格式
+            // 注意：suffixes仍然保留原始的6个时间维度，但处理循环中会考虑备用维度
+            const fieldMappings = [
+                // 价格变化百分比 - Birdeye实际字段: priceChange1mPercent, priceChange30mPercent等
+                {
+                    target: 'priceChangePercent',
+                    getKey: (suffix) => `priceChange${suffix}Percent`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processPercentageValue(val, suffix, 'priceChangePercent')
+                },
+                // 独立钱包数量 - Birdeye实际字段: uniqueWallet1m, uniqueWallet30m等
+                {
+                    target: 'uniqueWallets',
+                    getKey: (suffix) => `uniqueWallet${suffix}`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processCountValue(val, suffix, 'uniqueWallets')
+                },
+                // 独立钱包数量变化百分比 - Birdeye实际字段: uniqueWallet1mChangePercent, uniqueWallet30mChangePercent等
+                {
+                    target: 'uniqueWalletsChangePercent',
+                    getKey: (suffix) => `uniqueWallet${suffix}ChangePercent`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processPercentageValue(val, suffix, 'uniqueWalletsChangePercent')
+                },
+                // 买入次数 - Birdeye实际字段: buy1m, buy30m等
+                {
+                    target: 'buyCounts',
+                    getKey: (suffix) => `buy${suffix}`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processCountValue(val, suffix, 'buyCounts')
+                },
+                // 卖出次数 - Birdeye实际字段: sell1m, sell30m等
+                {
+                    target: 'sellCounts',
+                    getKey: (suffix) => `sell${suffix}`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processCountValue(val, suffix, 'sellCounts')
+                },
+                // 总买入量 (USD) - Birdeye实际字段: vBuy1mUSD, vBuy30mUSD等
+                {
+                    target: 'buyVolumeUSD',
+                    getKey: (suffix) => `vBuy${suffix}USD`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processUsdValue(val, suffix, 'buyVolumeUSD')
+                },
+                // 总卖出量 (USD) - Birdeye实际字段: vSell1mUSD, vSell30mUSD等
+                {
+                    target: 'sellVolumeUSD',
+                    getKey: (suffix) => `vSell${suffix}USD`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processUsdValue(val, suffix, 'sellVolumeUSD')
+                },
+                // 交易数量变化百分比 - Birdeye实际字段: trade1mChangePercent, trade30mChangePercent等
+                {
+                    target: 'tradeCountChangePercent',
+                    getKey: (suffix) => `trade${suffix}ChangePercent`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processPercentageValue(val, suffix, 'tradeCountChangePercent')
+                },
+                // 交易量变化百分比 - Birdeye实际字段: v1mChangePercent, v30mChangePercent等
+                {
+                    target: 'volumeChangePercent',
+                    getKey: (suffix) => `v${suffix}ChangePercent`,
+                    suffixes: timeFrames,
+                    processor: (val, suffix) => processPercentageValue(val, suffix, 'volumeChangePercent')
+                }
+            ];
+            
+            // 处理每个映射 - 使用新的动态时间维度逻辑
+            for (const mapping of fieldMappings) {
+                // 确保目标字段在tokenAnalytics中初始化
+                if (!tokenAnalytics[mapping.target]) {
+                    console.warn(`[SolanaService] Target field "${mapping.target}" missing in tokenAnalytics object`);
+                    tokenAnalytics[mapping.target] = {};
+                }
+                
+                // 处理固定时间维度 (1m, 30m, 2h, 24h)
+                for (const suffix of fixedTimeFrames) {
+                    const exact_key = mapping.getKey(suffix);
+                    console.log(`[SolanaService] [${mapping.target}] Looking for fixed dimension ${suffix} data with key '${exact_key}'`);
+                    const fieldExists = exact_key in overviewData;
+                    let processedVal = null;
+                    if (fieldExists) {
+                        const val = overviewData[exact_key];
+                        console.log(`[SolanaService] [${mapping.target}] Found value for '${exact_key}': ${val}, type: ${typeof val}`);
+                        try {
+                            processedVal = mapping.processor(val, suffix);
+                            console.log(`[SolanaService] [${mapping.target}] Processed ${suffix} result: ${processedVal}`);
+                        } catch (e) {
+                            console.warn(`[SolanaService] Error processing ${mapping.target}.${suffix} with key ${exact_key}: ${e.message}, value: ${val}`);
+                            processedVal = null;
+                        }
+                    } else {
+                        console.log(`[SolanaService] [${mapping.target}] Field '${exact_key}' does not exist in overviewData`);
+                    }
+                    // 新结构：始终写入对象
+                    tokenAnalytics[mapping.target][suffix] = { value: processedVal, actualTimeframe: suffix };
+                }
+                
+                // 处理动态时间维度
+                for (const dynamicDimension of dynamicTimeFrames) {
+                    const { primary, fallback } = dynamicDimension;
+                    const primary_key = mapping.getKey(primary);
+                    
+                    // 添加专门的日志，用于所有字段类型的详细调试
+                    console.log(`[SolanaService] [${mapping.target}] ======== DIMENSION DEBUG: ${primary} ========`);
+                    console.log(`[SolanaService] [${mapping.target}] Constructed primary key: '${primary_key}'`);
+                    console.log(`[SolanaService] [${mapping.target}] Checking if '${primary_key}' exists in overviewData: ${primary_key in overviewData}`);
+                    
+                    // 记录原始数据源中当前字段的所有可用时间维度
+                    const availableTimeframeSuffixes = Object.keys(overviewData)
+                        .filter(key => key.startsWith(mapping.getKey('').replace(/[0-9]+[a-zA-Z]+$/, '')))
+                        .map(key => {
+                            // 提取时间维度后缀 (如从 "priceChange6hPercent" 提取 "6h")
+                            const match = key.match(/([0-9]+[a-zA-Z]+)/);
+                            return match ? match[1] : null;
+                        })
+                        .filter(Boolean);
+                    
+                    console.log(`[SolanaService] [${mapping.target}] Available timeframes in data: ${availableTimeframeSuffixes.join(', ') || 'NONE'}`);
+                    
+                    if (primary_key in overviewData) {
+                        console.log(`[SolanaService] [${mapping.target}] Value for '${primary_key}' in overviewData: ${overviewData[primary_key]}`);
+                    }
+                    
+                    // 重置默认值
+                    let finalValue = null;
+                    let usedDimension = primary; // 默认使用primary
+                    
+                    // 尝试使用primary数据
+                    if (primary_key in overviewData) {
+                        try {
+                            const primaryVal = overviewData[primary_key];
+                            console.log(`[SolanaService] [${mapping.target}] Found primary value for '${primary_key}': ${primaryVal}, type: ${typeof primaryVal}`);
+                            finalValue = mapping.processor(primaryVal, primary);
+                            // 规则A: 如果使用了primary_key值，usedDimension必须为primary
+                            usedDimension = primary;
+                            console.log(`[SolanaService] [${mapping.target}] Processed primary value '${primaryVal}' with result: ${finalValue}`);
+                        } catch (e) {
+                            console.warn(`[SolanaService] Error processing primary dimension ${mapping.target}.${primary} with key ${primary_key}: ${e.message}`);
+                            finalValue = null;
+                            // 由于处理失败，保持usedDimension为primary但尝试fallback
+                        }
+                    }
+                    
+                    // 如果primary数据不存在或处理失败，尝试使用fallback数据
+                    if (finalValue === null || finalValue === 'N/A') {
+                        console.log(`[SolanaService] [${mapping.target}] Primary data unavailable or processing failed, trying fallback`);
+                        const fallback_key = mapping.getKey(fallback);
+                        
+                        console.log(`[SolanaService] [${mapping.target}] Constructed fallback key: '${fallback_key}'`);
+                        console.log(`[SolanaService] [${mapping.target}] Checking if '${fallback_key}' exists in overviewData: ${fallback_key in overviewData}`);
+                        
+                        if (fallback_key in overviewData) {
+                            console.log(`[SolanaService] [${mapping.target}] Value for '${fallback_key}' in overviewData: ${overviewData[fallback_key]}`);
+                        
+                            try {
+                                const fallbackVal = overviewData[fallback_key];
+                                console.log(`[SolanaService] [${mapping.target}] Found fallback value for '${fallback_key}': ${fallbackVal}, type: ${typeof fallbackVal}`);
+                                const processedFallbackValue = mapping.processor(fallbackVal, fallback);
+                                
+                                // 规则B: 只有当fallback处理成功并得到有效值时，才改变finalValue和usedDimension
+                                if (processedFallbackValue !== null && processedFallbackValue !== 'N/A') {
+                                    finalValue = processedFallbackValue;
+                                    usedDimension = fallback; // 使用fallback数据时，actualTimeframe为fallback
+                                    console.log(`[SolanaService] [${mapping.target}] Successfully processed fallback value: ${fallbackVal} → ${finalValue}`);
+                                } else {
+                                    console.log(`[SolanaService] [${mapping.target}] Fallback processing failed or returned 'N/A'`);
+                                    // 规则C: 如果fallback也失败，保持usedDimension为primary
+                                }
+                            } catch (e) {
+                                console.warn(`[SolanaService] Error processing fallback dimension ${mapping.target}.${fallback} with key ${fallback_key}: ${e.message}`);
+                                // 规则C: 处理异常时，保持usedDimension为primary
+                                // finalValue和usedDimension保持不变
+                            }
+                        } else {
+                            console.log(`[SolanaService] [${mapping.target}] Fallback field '${fallback_key}' also does not exist in overviewData`);
+                            // 规则C: 当fallback数据也不存在时，保持usedDimension为primary
+                            // finalValue和usedDimension保持不变
+                        }
+                    } else {
+                        // 规则A: 如果成功使用了primary_key的数据，确保usedDimension为primary
+                        // 这里再次确认usedDimension为primary，以防在上述代码路径中有任何未预期的修改
+                        usedDimension = primary;
+                        console.log(`[SolanaService] [${mapping.target}] Successfully used primary data, ensuring actualTimeframe=${primary}`);
+                    }
+                    
+                    // 新结构：始终写入对象，actualTimeframe为实际用到的维度
+                    tokenAnalytics[mapping.target][primary] = { value: finalValue, actualTimeframe: usedDimension };
+                    
+                    console.log(`[SolanaService] [${mapping.target}] Final result for ${primary}: value=${finalValue}, actualTimeframe=${usedDimension}`);
+                    console.log(`[SolanaService] [${mapping.target}] ======== END DIMENSION DEBUG ========`);
+                    
+                    if (usedDimension === fallback) {
+                        console.log(`[SolanaService] [${mapping.target}] Using ${fallback} data for ${primary} due to missing primary data`);
+                    } else if (usedDimension === primary) {
+                        console.log(`[SolanaService] [${mapping.target}] Using ${primary} data as expected`);
+                    } else {
+                        console.log(`[SolanaService] [${mapping.target}] No data available for ${primary} or ${fallback}`);
+                    }
+                }
+            }
+            
+            // 额外处理24小时总体指标 (面向前端 dashboard 展示)
+            console.log(`[SolanaService] 24h metrics raw values: \n                buy24h: ${overviewData.buy24h} (${typeof overviewData.buy24h}), \n                sell24h: ${overviewData.sell24h} (${typeof overviewData.sell24h})\n            `);
+            
+            // 使用精确的Birdeye字段名，确保一律使用processCountValue处理
+            if (overviewData.buy24h !== undefined) {
+                // 明确记录处理前后值
+                const rawBuy24h = overviewData.buy24h;
+                const processedBuy24h = processCountValue(rawBuy24h, '24h', 'totalBuys');
+                console.log(`[SolanaService] Processed buy24h: ${rawBuy24h} (${typeof rawBuy24h}) → ${processedBuy24h}`);
+                tokenAnalytics.totalBuys = { '24h': processedBuy24h };
+            } else {
+                console.log(`[SolanaService] buy24h field missing in overviewData`);
+                tokenAnalytics.totalBuys = { '24h': 'N/A' };
+            }
+            
+            if (overviewData.sell24h !== undefined) {
+                // 明确记录处理前后值
+                const rawSell24h = overviewData.sell24h;
+                const processedSell24h = processCountValue(rawSell24h, '24h', 'totalSells');
+                console.log(`[SolanaService] Processed sell24h: ${rawSell24h} (${typeof rawSell24h}) → ${processedSell24h}`);
+                tokenAnalytics.totalSells = { '24h': processedSell24h };
+            } else {
+                console.log(`[SolanaService] sell24h field missing in overviewData`);
+                tokenAnalytics.totalSells = { '24h': 'N/A' };
+            }
+            
+            // 处理买家卖家数据字段
+            if (overviewData.uniqueBuyer24h !== undefined) {
+                // 明确记录处理前后值
+                const rawUniqueBuyer24h = overviewData.uniqueBuyer24h;
+                const processedUniqueBuyer24h = processCountValue(rawUniqueBuyer24h, '24h', 'totalBuyers');
+                console.log(`[SolanaService] Processed uniqueBuyer24h: ${rawUniqueBuyer24h} (${typeof rawUniqueBuyer24h}) → ${processedUniqueBuyer24h}`);
+                tokenAnalytics.totalBuyers = { '24h': processedUniqueBuyer24h };
+            } else {
+                console.log(`[SolanaService] uniqueBuyer24h field missing in overviewData`);
+                tokenAnalytics.totalBuyers = { '24h': 'N/A' };
+            }
+            
+            if (overviewData.uniqueSeller24h !== undefined) {
+                // 明确记录处理前后值
+                const rawUniqueSeller24h = overviewData.uniqueSeller24h;
+                const processedUniqueSeller24h = processCountValue(rawUniqueSeller24h, '24h', 'totalSellers');
+                console.log(`[SolanaService] Processed uniqueSeller24h: ${rawUniqueSeller24h} (${typeof rawUniqueSeller24h}) → ${processedUniqueSeller24h}`);
+                tokenAnalytics.totalSellers = { '24h': processedUniqueSeller24h };
+            } else {
+                console.log(`[SolanaService] uniqueSeller24h field missing in overviewData`);
+                tokenAnalytics.totalSellers = { '24h': 'N/A' };
+            }
+            
+            // 新结构日志输出
+            console.log("[SolanaService] Final tokenAnalytics:", JSON.stringify(tokenAnalytics, null, 2));
+            standardizedData.tokenAnalytics = tokenAnalytics;
+        }
+
+        // 3f. 标准化 metadata 数据
         if (isOverviewEmpty && isMetadataEmpty) {
             console.error("[SolanaService] Cannot standardize metadata: Both overviewData and metadata_raw are empty or null.");
-            // 创建包含所有预期字段与默认值的完整结构体
+            // 创建默认空的 metadata 结构
             standardizedData.metadata = {
-                address: contractAddress, // 使用函数入参作为地址
-                decimals: 9, // Solana默认小数位数
-                name: 'N/A',
-                symbol: 'N/A',
-                fully_diluted_valuation: null,
-                market_cap: null,
-                circulating_supply: null,
-                verified_contract: null,
-                possible_spam: null,
-                categories: [],
-                links: {
-                    twitter: null,
-                    telegram: null
-                },
-                explorerUrl: contractAddress ? `https://solscan.io/token/${contractAddress}` : null
+                verified_contract: false,
+                security_score: null,
+                possible_spam: false,
+                social_links: {}
             };
-            console.log("[SolanaService] Created default metadata structure with empty values.");
         } else {
-            // 如果至少有一个数据源有效，则进行标准化处理
-        const metadata_std = {}; // 使用 any 或具体 Metadata 类型
-            
-            // 移除对tokenOverview的依赖，直接从原始数据获取所需信息
-            metadata_std.address = overviewData?.address ?? metadata_raw?.address ?? contractAddress;
-            metadata_std.decimals = parseInt(overviewData?.decimals?.toString() ?? metadata_raw?.decimals?.toString() ?? '9', 10);
-            metadata_std.name = overviewData?.name ?? metadata_raw?.name ?? 'N/A';
-            metadata_std.symbol = overviewData?.symbol ?? metadata_raw?.symbol ?? 'N/A';
-            
-            metadata_std.fully_diluted_valuation = overviewData?.fdv?.toString() ?? null; // 来自 overview data
-            metadata_std.market_cap = overviewData?.marketCap?.toString() ?? null; // 来自 overview data
-            metadata_std.circulating_supply = overviewData?.circulatingSupply?.toString() ?? null; // 来自 overview data
-
-            // Solana/Birdeye 可能不直接提供的字段，设为 null 或默认值，保持结构一致
-            metadata_std.verified_contract = null;
-            metadata_std.possible_spam = null;
-            metadata_std.categories = []; // 默认为空数组
-
-            // --- Links 对象 (放在 metadata 下，只含 twitter/telegram) ---
-            metadata_std.links = {
-                // 优先从 overview 的 extensions 获取 twitter，其次 metadata
-                twitter: overviewData?.extensions?.twitter ?? metadata_raw?.extensions?.twitter ?? null,
-                // telegram 尝试从两边获取，但 Birdeye 可能都为 null
-                telegram: overviewData?.extensions?.telegram ?? metadata_raw?.extensions?.telegram ?? null
+            // 使用 TypeScript 的注释可选，但有助于理解数据结构
+            // interface StandardizedMetadata {
+            //   verified_contract: boolean;
+            //   security_score: number | null;
+            //   possible_spam: boolean;
+            //   social_links: { [key: string]: string };
+            // }
+            const metadata = {
+                verified_contract: false,
+                security_score: null,
+                possible_spam: false,
+                social_links: {}
             };
-
-            // Explorer URL - 直接构建而不依赖overview_std
-            const explorerBase = 'https://solscan.io/token/';
-            const tokenAddrForExplorer = overviewData?.address ?? metadata_raw?.address ?? contractAddress;
-            metadata_std.explorerUrl = tokenAddrForExplorer ? `${explorerBase}${tokenAddrForExplorer}` : null;
-
-        // --- 赋值 ---
-        standardizedData.metadata = metadata_std;
+            
+            console.log("[SolanaService] Created default metadata structure with empty values.");
+            
+            // 提取安全信息 (目前 Solana Birdeye 提供的数据有限)
+            // 安全评分 - 直接使用 Birdeye metadata_raw 中的 security_score 字段
+            if (metadata_raw && typeof metadata_raw.security_score === 'number' && !isNaN(metadata_raw.security_score)) {
+                metadata.security_score = metadata_raw.security_score;
+            }
+            
+            // 可能是垃圾币 - 目前没有直接来源，可添加规则后进行设置
+            // 例如可以使用安全评分低于30的作为垃圾币标识
+            if (metadata.security_score !== null && metadata.security_score < 30) {
+                metadata.possible_spam = true;
+            }
+            
+            // 合约已验证 - Solana无需直接映射该字段，设为 true 即可
+            metadata.verified_contract = metadata_raw?.verified || false; // 如果Birdeye提供了验证状态，则使用它
+            
+            // 社交链接
+            // 收集可能存在的社交媒体链接 (从 metadata_raw 中)
+            if (metadata_raw) {
+                // 处理网站
+                if (metadata_raw.website && typeof metadata_raw.website === 'string') {
+                    metadata.social_links.website = metadata_raw.website;
+                }
+                
+                // 处理Twitter
+                if (metadata_raw.twitter && typeof metadata_raw.twitter === 'string') {
+                    metadata.social_links.twitter = metadata_raw.twitter;
+                }
+                
+                // 处理Telegram
+                if (metadata_raw.telegram && typeof metadata_raw.telegram === 'string') {
+                    metadata.social_links.telegram = metadata_raw.telegram;
+                }
+                
+                // 处理Discord
+                if (metadata_raw.discord && typeof metadata_raw.discord === 'string') {
+                    metadata.social_links.discord = metadata_raw.discord;
+                }
+            }
+            
+            standardizedData.metadata = metadata;
         }
+
+        // 设置链标识
+        standardizedData.chain = 'solana';
         
-        console.log("[SolanaService] Finished metadata standardization.");
-        // --- metadata 标准化逻辑结束 (3f) ---
+        // 新增日志：打印组合后的standardizedData结构
+        console.log("========== SolanaService standardizedData (tokenDataBundle) ==========");
+        console.log(JSON.stringify(standardizedData, null, 2));
 
         console.log("[SolanaService] Completed Solana data bundle standardization.");
-        return standardizedData; // 返回最终标准化数据
 
+        return standardizedData;
     } catch (error) {
         console.error(`[SolanaService] Error in getSolanaTokenDataBundle for ${address}:`, error);
-        return null; // 或返回包含错误信息的对象
+        throw error;
     }
 }
 

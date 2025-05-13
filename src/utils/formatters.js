@@ -35,12 +35,8 @@ function formatTimestamp(unixTimestamp) {
  * @returns {string} Formatted token amount with suffix or 'N/A'.
  */
 function formatTokenAmount(amountWeiStr, decimals = 18, suffixPrecision = 1) { 
-  console.log(`\n=== formatTokenAmount DEBUG START ===`);
-  console.log(`Input wei: "${amountWeiStr}"`);
-  console.log(`Decimals: ${decimals}`);
   try {
     if (amountWeiStr === null || amountWeiStr === undefined || amountWeiStr === '') {
-      console.log('Empty input');
       return 'N/A';
     }
     
@@ -55,20 +51,13 @@ function formatTokenAmount(amountWeiStr, decimals = 18, suffixPrecision = 1) {
     try {
       // Ensure input is string for formatUnits, remove non-digits
       const normalizedAmount = String(amountWeiStr).replace(/[^\d-]/g, ''); 
-      console.log(`Normalized amount: ${normalizedAmount}`);
       
       // Check for empty string after normalization
       if (normalizedAmount === '') {
-           console.log('Input resulted in empty normalized amount');
            return 'N/A';
       }
       
       standardUnitStr = ethers.formatUnits(normalizedAmount, decimals);
-      console.log(`Converted to standard units: ${standardUnitStr}`);
-      
-      // Add scientific notation debug
-      const scientificNotation = Number(standardUnitStr).toExponential();
-      console.log(`Standard units in scientific notation: ${scientificNotation}`);
       
     } catch (conversionError) {
        console.error(`Error using ethers.formatUnits: ${conversionError.message}. Input was: "${amountWeiStr}"`);
@@ -84,8 +73,6 @@ function formatTokenAmount(amountWeiStr, decimals = 18, suffixPrecision = 1) {
 
     // 3. Apply suffix formatting to the standard unit number
     const result = formatNumberSuffix(num, suffixPrecision); 
-    console.log(`Final formatted result: ${result}`);
-    console.log(`=== formatTokenAmount DEBUG END ===\n`);
     return result;
 
   } catch (error) {
@@ -125,22 +112,14 @@ function formatLargeNumber(num, precision = 2) {
  */
 function formatCurrency(num, precision = 2) {
   try {
-    console.log(`\n=== formatCurrency DEBUG START ===`);
-    console.log(`Input: ${num} (type: ${typeof num})`);
-    
     if (num === null || num === undefined) {
-      console.log(`Result: N/A (null or undefined input)`);
       return 'N/A';
     }
     
     const number = typeof num === 'string' ? parseFloat(num) : num;
     if (isNaN(number)) {
-      console.log(`Result: N/A (NaN after parsing)`);
       return 'N/A';
     }
-
-    console.log(`Parsed number: ${number}`);
-    console.log(`Scientific notation: ${number.toExponential()}`);
     
     const absNumber = Math.abs(number);
     const thresholdSmall = 0.001; 
@@ -152,12 +131,9 @@ function formatCurrency(num, precision = 2) {
 
     if (number === 0) {
         // Rule 4: Zero
-        console.log(`Case: Zero`);
-        console.log(`Result: $0.00`);
         return '$0.00';
     } else if (absNumber > 0 && absNumber < thresholdSmall) {
         // Rule 1: Very Small ($0.0{N}XXX)
-        console.log(`Case: Very small number (< ${thresholdSmall})`);
         const numStr = absNumber.toFixed(30); // Use high precision
         const decimalPart = numStr.split('.')[1] || '';
         let zeroCount = 0;
@@ -173,33 +149,23 @@ function formatCurrency(num, precision = 2) {
         if (firstNonZeroIndex !== -1) {
             const significantPart = decimalPart.substring(firstNonZeroIndex, Math.min(firstNonZeroIndex + smallSignificantDigits, decimalPart.length));
             const formattedString = `${sign}$0.0{${zeroCount}}${significantPart}`;
-            console.log(`Result: ${formattedString}`);
             return formattedString; 
         } else {
-            console.log(`Result: $0.00 (effectively zero)`);
             return '$0.00'; 
         }
     } else if (absNumber >= thresholdLarge) {
         // Rule 3: Large ($X.XK/M/B/T)
-        console.log(`Case: Large number (>= ${thresholdLarge})`);
         
         // 直接调用 formatNumberSuffix 进行格式化
         const suffixFormatted = formatNumberSuffix(number, suffixPrecision);
-        console.log(`After formatNumberSuffix: ${suffixFormatted}`);
         
         const result = suffixFormatted === 'N/A' ? suffixFormatted : `$${suffixFormatted}`;
-        console.log(`Result: ${result}`);
-        console.log(`=== formatCurrency DEBUG END ===\n`);
         return result;
     } else {
         // Rule 2: Mid-Range ($X,XXX.XX)
-        console.log(`Case: Mid-range number (${thresholdSmall}-${thresholdLarge})`);
         const formatted = formatLargeNumber(number, standardPrecision);
-        console.log(`After formatLargeNumber: ${formatted}`);
         
         const result = formatted === 'N/A' ? formatted : `$${formatted}`;
-        console.log(`Result: ${result}`);
-        console.log(`=== formatCurrency DEBUG END ===\n`);
         return result;
     }
   } catch (error) {
@@ -220,9 +186,6 @@ function formatCurrency(num, precision = 2) {
  */
 function formatNumberSuffix(num, suffixPrecision = 1, standardPrecision = 2, smallPrecision = 6) {
   try {
-    console.log(`\n=== formatNumberSuffix DEBUG START ===`);
-    console.log(`Input number: ${num}`);
-    
     if (num === null || num === undefined || num === '') return 'N/A';
 
     // Clean input (remove commas if any) and convert to number
@@ -230,8 +193,6 @@ function formatNumberSuffix(num, suffixPrecision = 1, standardPrecision = 2, sma
     if (isNaN(number)) return 'N/A';
 
     const absNumber = Math.abs(number);
-    console.log(`Absolute number: ${absNumber}`);
-    console.log(`Scientific notation: ${absNumber.toExponential()}`);
     
     // Suffixes only up to Trillion ('T' is at index 4)
     const suffixes = ['', 'K', 'M', 'B', 'T']; 
@@ -242,68 +203,50 @@ function formatNumberSuffix(num, suffixPrecision = 1, standardPrecision = 2, sma
 
     // Use Number.EPSILON for zero comparison with floats
     if (absNumber < Number.EPSILON) {
-       console.log(`Case: Zero`);
        const result = number.toLocaleString(undefined, { 
          minimumFractionDigits: standardPrecision, 
          maximumFractionDigits: standardPrecision 
        });
-       console.log(`Result: ${result}`);
        return result;
     } else if (absNumber < smallThreshold) {
-       console.log(`Case: Small number (< 1)`);
        const result = number.toLocaleString(undefined, { 
          minimumFractionDigits: smallPrecision, 
          maximumFractionDigits: smallPrecision 
        });
-       console.log(`Result: ${result}`);
        return result;
     } else if (absNumber < threshold) {
-       console.log(`Case: Medium number (1-999)`);
        const result = number.toLocaleString(undefined, { 
          minimumFractionDigits: standardPrecision, 
          maximumFractionDigits: standardPrecision 
        });
-       console.log(`Result: ${result}`);
        return result;
     } else if (absNumber >= 1e12) {
         // Any number >= 1 trillion (1e12) will use 'T' suffix
-        console.log(`Case: Trillion or larger (>= 1e12)`);
         
         // For quadrillion or larger, display as XX,XXX.XT
         const scaledNumber = number / trillionBase;
-        console.log(`Scaled to trillions: ${scaledNumber}`);
         
         const formattedScaledNumber = scaledNumber.toLocaleString(undefined, {
             minimumFractionDigits: suffixPrecision,
             maximumFractionDigits: suffixPrecision
         });
-        console.log(`Formatted scaled number: ${formattedScaledNumber}`);
         
         const result = `${formattedScaledNumber}T`;
-        console.log(`Result: ${result}`);
-        console.log(`=== formatNumberSuffix DEBUG END ===\n`);
         return result;
     } else {
-       console.log(`Case: Large number (>= 1000, < 1e12)`);
        // Calculate magnitude (0 for ones, 1 for K, 2 for M, 3 for B, 4 for T)
        const magnitude = Math.min(4, Math.floor(Math.log10(absNumber) / 3));
-       console.log(`Calculated magnitude: ${magnitude}`);
 
        const divisor = Math.pow(1000, magnitude);
-       console.log(`Divisor: ${divisor}`);
 
        const scaledNumber = number / divisor;
-       console.log(`Scaled number: ${scaledNumber}`);
 
        const formattedScaledNumber = scaledNumber.toLocaleString(undefined, {
            minimumFractionDigits: suffixPrecision,
            maximumFractionDigits: suffixPrecision
        });
-       console.log(`Formatted scaled number: ${formattedScaledNumber}`);
 
        const result = `${formattedScaledNumber}${suffixes[magnitude]}`;
-       console.log(`Result: ${result}`);
-       console.log(`=== formatNumberSuffix DEBUG END ===\n`);
        return result;
     }
   } catch (error) {
@@ -313,18 +256,185 @@ function formatNumberSuffix(num, suffixPrecision = 1, standardPrecision = 2, sma
 }
 
 /**
+ * Special processor for wallet counts, buy counts, and sell counts:
+ * - Ensures values are non-negative integers or formatted strings
+ * - Properly handles null/undefined values
+ * - Returns formatted string with K/M/B/T suffix or "N/A" for unavailable data
+ * @param {any} value - The count value to process
+ * @param {string} placeholder - The placeholder to use when data is not available (default "N/A")
+ * @returns {string} Formatted count value string or placeholder for unavailable data
+ */
+function processCountValue(value, placeholder = 'N/A') {
+  try {
+    // If null, undefined or empty string, return placeholder
+    if (value === null || value === undefined || value === '') {
+      return placeholder;
+    }
+    
+    // If it's already a string with K/M/B/T suffix, ensure it's valid
+    if (typeof value === 'string') {
+      // Check if the string contains K, M, B, or T suffix
+      if (/[KMBTkmbt]/.test(value)) {
+        return value; // Already formatted string
+      }
+      
+      // Try to parse it as a number
+      const parsedValue = parseFloat(value);
+      if (isNaN(parsedValue)) {
+        return placeholder; // Return placeholder for invalid strings
+      }
+      
+      // Ensure non-negative
+      const absValue = Math.abs(parsedValue);
+      
+      // Special case for zero
+      if (absValue < Number.EPSILON) {
+        return '0';
+      }
+      
+      // Apply integer rounding for ALL values (new)
+      // For values < 1000, return as simple integer string
+      if (absValue < 1000) {
+        return Math.floor(absValue).toString(); // Return as string
+      }
+      
+      // For values >= 1000, handle thousands, millions, etc.
+      // We'll always floor the value before formatting with suffix
+      const flooredValue = Math.floor(absValue);
+      
+      if (absValue < 1_000_000) {
+        // For thousands (K)
+        return `${Math.floor(flooredValue / 1000)}K`;
+      } else if (absValue < 1_000_000_000) {
+        // For millions (M)
+        return `${Math.floor(flooredValue / 1_000_000)}M`;
+      } else if (absValue < 1_000_000_000_000) {
+        // For billions (B)
+        return `${Math.floor(flooredValue / 1_000_000_000)}B`;
+      } else {
+        // For trillions (T)
+        return `${Math.floor(flooredValue / 1_000_000_000_000)}T`;
+      }
+    }
+    
+    // Handle numeric values
+    if (typeof value === 'number') {
+      if (isNaN(value)) {
+        return placeholder;
+      }
+      
+      // Ensure non-negative 
+      const absValue = Math.abs(value);
+      
+      // Special case for zero
+      if (absValue < Number.EPSILON) {
+        return '0';
+      }
+      
+      // Apply integer rounding for ALL values (new)
+      // For values < 1000, return as simple integer string
+      if (absValue < 1000) {
+        return Math.floor(absValue).toString(); // Return as string
+      }
+      
+      // For values >= 1000, handle thousands, millions, etc.
+      // We'll always floor the value before formatting with suffix
+      const flooredValue = Math.floor(absValue);
+      
+      if (absValue < 1_000_000) {
+        // For thousands (K)
+        return `${Math.floor(flooredValue / 1000)}K`;
+      } else if (absValue < 1_000_000_000) {
+        // For millions (M)
+        return `${Math.floor(flooredValue / 1_000_000)}M`;
+      } else if (absValue < 1_000_000_000_000) {
+        // For billions (B)
+        return `${Math.floor(flooredValue / 1_000_000_000)}B`;
+      } else {
+        // For trillions (T)
+        return `${Math.floor(flooredValue / 1_000_000_000_000)}T`;
+      }
+    }
+    
+    // For any other type, return placeholder
+    return placeholder;
+  } catch (error) {
+    console.error('Error in processCountValue:', error);
+    return placeholder;
+  }
+}
+
+/**
+ * 格式化百分比数值，专门用于发送给AI的文本提示
+ * @param {number | string | null | undefined} value - 要格式化的百分比值
+ * @param {number} digits - 小数位数（默认2）
+ * @param {string} placeholder - 当数据不可用时使用的占位符（默认"N/A"）
+ * @returns {string} 格式化后的百分比字符串或占位符
+ */
+function formatPercentageForAI(value, digits = 2, placeholder = 'N/A') {
+  try {
+    // 处理null、undefined或空字符串
+    if (value === null || value === undefined || value === '') {
+      console.log(`[formatPercentageForAI] Null/undefined/empty value, returning placeholder`);
+      return placeholder;
+    }
+    
+    // 如果已经是格式化的百分比字符串，直接返回
+    if (typeof value === 'string' && value.endsWith('%')) {
+      // 验证是否为有效数字+%的格式
+      const numPart = value.replace('%', '');
+      const isValidNum = !isNaN(parseFloat(numPart));
+      if (isValidNum) {
+        console.log(`[formatPercentageForAI] Already formatted percentage string: ${value}`);
+        return value;
+      }
+    }
+    
+    // 将字符串转换为数字
+    let num;
+    if (typeof value === 'string') {
+      // 移除千分位分隔符和百分号
+      const cleanStr = value.replace(/[,%]/g, '');
+      num = parseFloat(cleanStr);
+    } else {
+      num = value;
+    }
+    
+    // 检查是否为有效数字
+    if (typeof num !== 'number' || isNaN(num)) {
+      console.log(`[formatPercentageForAI] Invalid number after parsing: ${value} → ${num}`);
+      return placeholder;
+    }
+    
+    console.log(`[formatPercentageForAI] Formatting value: ${value} → ${num.toFixed(digits)}%`);
+    
+    // 格式化数字并添加百分号
+    return `${num.toFixed(digits)}%`;
+  } catch (error) {
+    console.error('Error formatting percentage for AI:', error);
+    return placeholder;
+  }
+}
+
+/**
  * Formats a currency value with suffixes (K, M, B, T)
  * @param {number|string} value - The currency value to format
  * @param {number} precision - Decimal places for suffixes (default 1)
- * @returns {string} Formatted currency string with appropriate suffix
+ * @param {string} placeholder - Placeholder text when value is invalid (default "N/A")
+ * @returns {string} Formatted currency string with appropriate suffix or placeholder
  */
-function formatCurrencySuffix(value, precision = 1) {
+function formatCurrencySuffix(value, precision = 1, placeholder = 'N/A') {
   try {
-    if (value === null || value === undefined) return '$0';
-    if (isNaN(value)) return 'N/A';
+    if (value === null || value === undefined) return placeholder;
+    if (isNaN(value)) return placeholder;
 
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : '';
+    
+    // Special case for zero
+    if (absValue < Number.EPSILON) {
+      return '$0.00';
+    }
 
     if (absValue < 1000) {
       return `${sign}$${absValue.toFixed(2)}`;
@@ -339,7 +449,7 @@ function formatCurrencySuffix(value, precision = 1) {
     }
   } catch (error) {
     console.error('Error formatting currency with suffix:', error);
-    return 'N/A';
+    return placeholder;
   }
 }
 
@@ -347,17 +457,18 @@ function formatCurrencySuffix(value, precision = 1) {
  * Safe wrapper for formatCurrencySuffix that won't throw exceptions
  * @param {any} value - The currency value to format
  * @param {number} precision - Decimal places for suffixes (default 1)
- * @returns {string} Formatted currency string with appropriate suffix, defaults to "$0" on error
+ * @param {string} placeholder - Placeholder when value is invalid (default "N/A")
+ * @returns {string} Formatted currency string with appropriate suffix or placeholder
  */
-function safeCurrencySuffix(value, precision = 1) {
+function safeCurrencySuffix(value, precision = 1, placeholder = 'N/A') {
   try {
     if (value === null || value === undefined || value === '' || isNaN(value)) {
-      return '$0';
+      return placeholder;
     }
-    return formatCurrencySuffix(value, precision);
+    return formatCurrencySuffix(value, precision, placeholder);
   } catch (error) {
     console.error('Error in safeCurrencySuffix:', error);
-    return '$0';
+    return placeholder;
   }
 }
 
@@ -365,17 +476,18 @@ function safeCurrencySuffix(value, precision = 1) {
  * Safe wrapper for formatNumberSuffix that won't throw exceptions
  * @param {any} value - The number to format
  * @param {number} precision - Decimal places for suffixes (default 1)
- * @returns {string} Formatted number string with appropriate suffix, defaults to "0" on error
+ * @param {string} placeholder - Placeholder when value is invalid (default "N/A")
+ * @returns {string} Formatted number string with appropriate suffix or placeholder
  */
-function safeNumberSuffix(value, precision = 1) {
+function safeNumberSuffix(value, precision = 1, placeholder = 'N/A') {
   try {
     if (value === null || value === undefined || value === '' || isNaN(value)) {
-      return '0';
+      return placeholder;
     }
     return formatNumberSuffix(value, precision);
   } catch (error) {
     console.error('Error in safeNumberSuffix:', error);
-    return '0';
+    return placeholder;
   }
 }
 
@@ -405,66 +517,6 @@ function formatPercentage(value, decimals = 2) {
   }
 }
 
-/**
- * Special processor for wallet counts, buy counts, and sell counts:
- * - If the value is a string with K/M/B/T suffix, return it unchanged
- * - If the value is a number less than 1000, return it as an integer
- * - If the value is a number greater than or equal to 1000, use safeNumberSuffix
- * @param {any} value - The count value to process
- * @returns {string|number} Processed count value
- */
-function processCountValue(value) {
-  try {
-    // If null, undefined or empty string, return '0'
-    if (value === null || value === undefined || value === '') {
-      return '0';
-    }
-    
-    // If it's already a string with K/M/B/T suffix, return it unchanged
-    if (typeof value === 'string') {
-      // Check if the string contains K, M, B, or T suffix
-      if (/[KMBTkmbt]/.test(value)) {
-        return value;
-      }
-      
-      // Try to parse it as a number
-      const parsedValue = parseFloat(value);
-      if (isNaN(parsedValue)) {
-        return '0'; // Return '0' for invalid strings
-      }
-      
-      // Apply integer rounding for values < 1000
-      if (parsedValue < 1000) {
-        return Math.floor(parsedValue);
-      }
-      
-      // For values >= 1000, use the safeNumberSuffix formatter
-      return safeNumberSuffix(parsedValue, 1);
-    }
-    
-    // Handle numeric values
-    if (typeof value === 'number') {
-      if (isNaN(value)) {
-        return '0';
-      }
-      
-      // Apply integer rounding for values < 1000
-      if (value < 1000) {
-        return Math.floor(value);
-      }
-      
-      // For values >= 1000, use the safeNumberSuffix formatter
-      return safeNumberSuffix(value, 1);
-    }
-    
-    // For any other type, return '0'
-    return '0';
-  } catch (error) {
-    console.error('Error in processCountValue:', error);
-    return '0';
-  }
-}
-
 module.exports = {
   formatTimestamp,
   formatTokenAmount,
@@ -475,5 +527,6 @@ module.exports = {
   safeCurrencySuffix,
   safeNumberSuffix,
   formatPercentage,
-  processCountValue
+  processCountValue,
+  formatPercentageForAI
 }; 
