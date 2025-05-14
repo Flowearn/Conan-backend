@@ -28,6 +28,7 @@ provider:
 functions:
   api:
     handler: src/index.handler
+    timeout: 120
     events:
       - httpApi:
           path: /

@@ -1,272 +1,38 @@
 const dotenv = require("dotenv");
 const path = require("path");
-const axios = require("axios");
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require("@google/generative-ai");
 const { formatPercentageForAI } = require("../utils/formatters");
 
-dotenv.config({ path: path.resolve(__dirname, '../', '.env') });
+// 加载环境变量配置
+dotenv.config({ path: path.resolve(__dirname, '../../', '.env') });
 
-const grokApiKey = process.env.XAI_API_KEY;
+// 获取 Gemini API Key
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (!geminiApiKey) {
+  console.error("CRITICAL: GEMINI_API_KEY is not set in environment variables. AI analysis will fail.");
+}
+
+// 初始化 GoogleGenerativeAI 实例
+let genAI; 
+if (geminiApiKey) {
+  genAI = new GoogleGenerativeAI(geminiApiKey);
+  console.log("[GeminiService] GoogleGenerativeAI client initialized.");
+} else {
+  console.warn("[GeminiService] GoogleGenerativeAI client not initialized due to missing API key. AI analysis will fail.");
+}
 
 console.log("=========================================");
 console.log("Loading aiAnalysisService.js");
 console.log("=========================================");
 
-// 尝试的模型和API组合顺序
-const API_CONFIGS = [
-  {
-    name: "X.AI API (grok models)",
-    baseUrl: "https://api.x.ai/v1",
-    models: ["grok-1.5-turbo", "grok-1", "grok-0", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"]
-  }
-];
-
-/**
- * 使用可用的AI模型生成文本分析
- * @param {string} prompt - 发送给AI的提示
- * @returns {Promise<{success: boolean, analysis?: string, error?: string, details?: string}>}
- */
-async function generateGrokAnalysis(prompt) {
-  console.log('===== 开始 AI 分析 =====');
-  console.log('API Key设置状态:', !!grokApiKey);
-
-  if (!grokApiKey) {
-    console.error('API密钥未设置!');
-    return {
-      success: false,
-      error: 'API密钥未配置',
-      details: '请在backend目录根目录下创建.env文件，并添加XAI_API_KEY=your_api_key'
-    };
-  }
-
-  console.log(`Prompt长度: ${prompt.length} 字符`);
-  console.log('Prompt前50个字符:', prompt.substring(0, 50));
-
-  // 基本请求设置
-  let lastError = null;
-  let lastErrorDetails = null;
-
-  // 遍历所有API配置
-  for (const apiConfig of API_CONFIGS) {
-    console.log(`尝试使用 ${apiConfig.name}...`);
-    
-    // 尝试获取可用模型列表
-    let availableModels = [];
-    try {
-      console.log(`检索 ${apiConfig.baseUrl}/models 的可用模型...`);
-      const modelsResponse = await axios.get(`${apiConfig.baseUrl}/models`, {
-        headers: { 
-          'Authorization': `Bearer ${grokApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
-      
-      if (modelsResponse.data && Array.isArray(modelsResponse.data.data)) {
-        availableModels = modelsResponse.data.data
-          .map(model => typeof model === 'object' ? (model.id || model.name) : model)
-          .filter(Boolean);
-        
-        console.log('检测到可用模型:', availableModels);
-      } else {
-        console.log('无法从API获取有效的模型列表，将使用预定义列表');
-      }
-    } catch (modelsError) {
-      console.log(`获取 ${apiConfig.baseUrl}/models 模型列表失败:`, modelsError.message);
-    }
-    
-    // 如果没有获取到有效的模型列表，使用预定义的列表
-    if (!availableModels.length) {
-      availableModels = apiConfig.models;
-    }
-    
-    // 遍历该API配置支持的所有模型
-    for (const modelName of availableModels) {
-      // 使用带有重试的异步函数
-      const result = await tryModelWithRetry(apiConfig.baseUrl, modelName, prompt, grokApiKey);
-      if (result.success) {
-        return result;
-      } else {
-        lastError = result.error;
-        lastErrorDetails = result.details;
-        console.log(`模型 ${modelName} 失败: ${result.error}`);
-      }
-    }
-  }
-  
-  // 如果所有尝试都失败，返回最后一个错误
-  return {
-    success: false,
-    error: lastError || 'All model attempts failed',
-    details: lastErrorDetails || 'No additional error details available'
-  };
-}
-
-/**
- * 尝试使用指定模型发送请求，包含重试逻辑
- */
-async function tryModelWithRetry(baseUrl, modelName, prompt, apiKey, maxRetries = 2) {
-  console.log(`尝试使用模型 ${modelName}...`);
-  
-  let lastError = null;
-  let retryCount = 0;
-  
-  // Determine the language of the prompt by checking for English keywords
-  const isEnglishPrompt = prompt.includes("in English") || prompt.includes("English") || prompt.includes("Please provide");
-  console.log(`Detected prompt language: ${isEnglishPrompt ? 'English' : 'Chinese'}`);
-  
-  // Create an appropriate system message based on detected language
-  const systemMessage = isEnglishPrompt
-    ? `You are a professional cryptocurrency analyst specializing in analyzing crypto markets and on-chain data. Provide concise, data-focused analysis with clear professional insights. Get straight to the point without lengthy introductions. Your response must be in English.
-
-Please ensure your analysis maintains internal consistency. If you identify significant risks based on \`topTraders\` data (such as extensive bot activity or potential manipulation), this finding should **constrain or negate** overly optimistic interpretations of other metrics like trader count when evaluating conclusive indicators such as 'community interest' or 'market sentiment'. **Prioritize** and highlight these identified key risk factors, avoiding contradictory conclusions across different parts of the analysis or in the final summary.`
-    : `你是一位专业的加密货币分析师，擅长分析币圈和链上数据，并给出中肯的专业建议。分析时应注重数据，讲究专业性，输出内容简洁明了，易于理解。回答要直接切入主题，不需要冗长的引言，只需提供核心观点和结论。回答必须使用中文。
-
-请确保你的分析保持内部一致性。如果你根据 \`topTraders\` 数据识别出了显著风险（例如大量机器人活动或潜在操纵），那么在评估整体'社区兴趣'或'市场情绪'等结论性指标时，这一发现应当**制约或否定**基于其他数据（如交易者数量）得出的过于乐观的解读。**优先考虑**并突出这些已识别的关键风险因素，避免在分析的不同部分或最终总结中出现自相矛盾的结论。`;
-  
-  while (retryCount <= maxRetries) {
-    try {
-      // 构建payload - 使用基本OpenAI兼容结构
-      const payload = {
-        model: modelName,
-        messages: [
-          { role: "system", content: systemMessage },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 600,
-        stream: false
-      };
-      
-      // X.AI可能使用不同的参数
-      if (baseUrl.includes('x.ai')) {
-        // 如果是X.AI API，可能有不同的参数结构
-        payload.generationConfig = {
-          temperature: 0.7,
-          maxOutputTokens: 800 // 显著增加Token上限以容纳更长的社区分析和价格分析
-        };
-        delete payload.temperature;
-        delete payload.max_tokens;
-      }
-      
-      const requestConfig = {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 120000 // 120秒超时
-      };
-      
-      console.log(`[aiService] Preparing to call ${baseUrl}/chat/completions with model ${modelName}`);
-      
-      // --- 在 axios.post 调用Grok API之前 ---
-      console.log("========== Grok API Request Payload START ==========");
-      console.log("Grok API Model:", payload.model); // 或者 modelName 变量
-      console.log("--- Grok API System Message ---");
-      console.log(JSON.stringify(payload.messages[0], null, 2)); // 假设第一个消息是 system role
-      console.log("--- Grok API User Prompt (Full Content) ---");
-      console.log(JSON.stringify(payload.messages[1], null, 2)); // 假设第二个消息是 user role
-      // 为了确保看到完整的 user prompt 字符串内容，而不是被截断的JSON对象：
-      if (payload.messages && payload.messages.length > 1 && payload.messages[1] && typeof payload.messages[1].content === 'string') {
-          console.log("--- Grok API User Prompt (Raw String Content) ---");
-          console.log(payload.messages[1].content);
-      }
-      console.log("--- Grok API Full Payload (excluding messages for brevity if already printed) ---");
-      const payloadToLog = { ...payload };
-      delete payloadToLog.messages; // 可选：如果上面已详细打印，这里可以省略以减少日志体积
-      console.log(JSON.stringify(payloadToLog, null, 2));
-      console.log("========== Grok API Request Payload END ==========");
-      
-      console.log('[aiService] Calling external AI API...');
-      
-      const response = await axios.post(`${baseUrl}/chat/completions`, payload, requestConfig);
-      console.log('[aiService] External AI API call finished.');
-      
-      // 解析响应
-      let responseText = '';
-      
-      // 尝试典型的OpenAI响应格式
-      if (response.data.choices && response.data.choices[0]) {
-        if (response.data.choices[0].message && response.data.choices[0].message.content) {
-          responseText = response.data.choices[0].message.content;
-        } else if (response.data.choices[0].text) {
-          responseText = response.data.choices[0].text;
-        }
-      }
-      
-      // 处理可能的替代响应格式
-      if (!responseText && response.data.output) {
-        responseText = response.data.output;
-      }
-      
-      if (!responseText) {
-        console.log('警告: 无法从响应中提取文本内容，尝试记录完整响应以进行调试');
-        console.log('响应结构:', JSON.stringify(response.data, null, 2));
-        throw new Error('无法从API响应中提取文本内容');
-      }
-      
-      console.log('成功从API获取响应!');
-      console.log('响应预览:', responseText.substring(0, 50) + '...');
-      
-      // Add more detailed logging
-      console.log('AI响应完整长度:', responseText.length);
-      console.log('AI响应类型:', typeof responseText);
-      
-      return {
-        success: true,
-        analysis: responseText
-      };
-    } catch (error) {
-      lastError = error;
-      retryCount++;
-      
-      if (retryCount <= maxRetries) {
-        console.log(`模型 ${modelName} 请求失败，重试 ${retryCount}/${maxRetries}...`);
-        // 增加延迟，避免过快地重试
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-      } else {
-        console.log(`模型 ${modelName} 已达到最大重试次数(${maxRetries})，放弃`);
-        
-        let errorMessage = `调用模型 ${modelName} 失败`;
-        let errorDetails = error.message || '未知错误';
-        
-        if (error.response) {
-          errorMessage = `API错误 (HTTP ${error.response.status})`;
-          errorDetails = JSON.stringify(error.response.data);
-          console.error('API错误详情:', error.response.status, error.response.data);
-        } else if (error.request) {
-          errorMessage = '未收到API响应';
-          errorDetails = '请求已发送但没有收到响应';
-        } else if (error.code === 'ECONNABORTED') {
-          errorMessage = 'API请求超时';
-          errorDetails = '请求超时，可能是服务器负载过高';
-        }
-        
-        return {
-          success: false,
-          error: errorMessage,
-          details: errorDetails
-        };
-      }
-    }
-  }
-  
-  // 这里不应该到达，但以防万一
-  return {
-    success: false,
-    error: '未知错误',
-    details: '重试循环结束但没有返回结果'
-  };
-}
-
 /**
  * 生成代币基本盘分析
  * @param {Object} tokenData - 所有代币相关数据
  * @param {string} lang - 请求的语言，默认为'zh'（中文）
- * @returns {Promise<{success: boolean, analysis?: string, error?: string, details?: string}>}
+ * @returns {Promise<{success: boolean, analysis?: string, error?: string, details?: string, usageMetadata?: object}>}
  */
 async function generateBasicAnalysis(tokenData, lang = 'zh') {
   console.log(`[aiService] generateBasicAnalysis started. Lang:`, lang);
-  console.log("DEBUG INSTRUCTION 2 (aiAnalysisService.js): topTraders data RECEIVED by generateBasicAnalysis:", JSON.stringify(tokenData.topTraders, null, 2));
   
   // 提取所需数据
   const { tokenOverview, holderStats, metadata, tokenAnalytics, topTraders, chain } = tokenData;
@@ -373,14 +139,16 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   }
   
   // 处理顶级交易者数据 (最多10名)
-  let topTradersInfoEN = '';
-  let topTradersInfoZH = '';
+  let topTradersSummaryEN = '';
+  let topTradersSummaryZH = '';
   
-  // 帮助函数：格式化地址为掩码形式
-  const maskAddress = (address) => {
-    if (!address || typeof address !== 'string') return 'unknown';
-    if (address.length <= 8) return address;
-    return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
+  // 帮助函数：检查标签是否包含bot关键词
+  const isBotTag = (tags) => {
+    if (!tags || !Array.isArray(tags)) return false;
+    return tags.some(tag => 
+      typeof tag === 'string' && 
+      (tag.toLowerCase().includes('bot') || tag.toLowerCase().includes('sniper-bot'))
+    );
   };
   
   if (topTraders) {
@@ -398,30 +166,72 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
     const limitedTraders = tradersArray.slice(0, 10);
     
     if (limitedTraders.length > 0) {
-      // 英文版顶级交易者信息
-      topTradersInfoEN = `### Top Traders (up to 10)\n`;
+      // 计算聚合统计数据
+      let top10TotalVolumeUSD = 0;
+      let top10TradeCount = 0;
+      let top10BotCount = 0;
+      let totalBuyCount = 0;
+      let totalSellCount = 0;
       
-      limitedTraders.forEach((trader, index) => {
-        topTradersInfoEN += `- Trader ${index + 1} (Address: ${maskAddress(trader.address)}): Total: ${trader.total.amountUSDFormatted}, Trades: ${trader.total.count} (Buy/Sell: ${trader.buy.count}/${trader.sell.count}), Tags: ${trader.tags?.join(', ') || 'None'}\n`;
+      limitedTraders.forEach(trader => {
+        // 累加交易额 (处理格式化的金额字符串，如 $1,234.56)
+        const amountStr = trader.total.amountUSDFormatted;
+        if (amountStr) {
+          const numericPart = amountStr.replace(/[^0-9.]/g, '');
+          const amountValue = parseFloat(numericPart);
+          if (!isNaN(amountValue)) {
+            top10TotalVolumeUSD += amountValue;
+          }
+        }
+        
+        // 累加交易次数
+        top10TradeCount += trader.total.count || 0;
+        
+        // 计算买入/卖出次数
+        totalBuyCount += trader.buy.count || 0;
+        totalSellCount += trader.sell.count || 0;
+        
+        // 统计机器人数量
+        if (isBotTag(trader.tags)) {
+          top10BotCount++;
+        }
       });
       
-      // 中文版顶级交易者信息
-      topTradersInfoZH = `### 顶级交易者 (最多10个)\n`;
+      // 格式化交易额
+      const formattedTotalVolume = `$${top10TotalVolumeUSD.toLocaleString(undefined, { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      })}`;
       
-      limitedTraders.forEach((trader, index) => {
-        topTradersInfoZH += `- 交易者 ${index + 1} (地址: ${maskAddress(trader.address)}): 总额: ${trader.total.amountUSDFormatted}, 总次数: ${trader.total.count} (买/卖: ${trader.buy.count}/${trader.sell.count}), 标签: ${trader.tags?.join(', ') || '无'}\n`;
-      });
+      // 计算买卖比例 (处理除零情况)
+      let buyToSellRatio = 'N/A';
+      if (totalSellCount > 0) {
+        buyToSellRatio = `${totalBuyCount} buys / ${totalSellCount} sells (${(totalBuyCount / totalSellCount).toFixed(2)} ratio)`;
+      } else if (totalBuyCount > 0) {
+        buyToSellRatio = `${totalBuyCount} buys / 0 sells`;
+      }
+      
+      // 英文版顶级交易者聚合统计
+      topTradersSummaryEN = `### Top Traders Summary (Top 10)
+- Combined Total Volume (USD): ${formattedTotalVolume}
+- Combined Total Trades: ${top10TradeCount.toLocaleString()}
+- Identified Bots: ${top10BotCount} out of ${limitedTraders.length}
+- Overall Buy/Sell Trade Ratio: ${buyToSellRatio}`;
+      
+      // 中文版顶级交易者聚合统计
+      topTradersSummaryZH = `### 顶级交易者摘要 (前10名)
+- 总交易额 (美元): ${formattedTotalVolume}
+- 总交易次数: ${top10TradeCount.toLocaleString()}
+- 机器人识别: ${limitedTraders.length}名交易者中有${top10BotCount}个机器人
+- 总体买/卖交易比例: ${totalBuyCount} 买入 / ${totalSellCount} 卖出 ${totalSellCount > 0 ? `(比例 ${(totalBuyCount / totalSellCount).toFixed(2)})` : ''}`;
     } else {
-      topTradersInfoEN = `### Top Traders\nNo valid top trader data available for this token.`;
-      topTradersInfoZH = `### 顶级交易者\n此代币当前无有效的顶级交易者数据。`;
+      topTradersSummaryEN = `### Top Traders Summary\nNo significant top trader activity to summarize.`;
+      topTradersSummaryZH = `### 顶级交易者摘要\n无显著的顶级交易者活动可供总结。`;
     }
   } else {
-    topTradersInfoEN = `### Top Traders\nNo valid top trader data available for this token.`;
-    topTradersInfoZH = `### 顶级交易者\n此代币当前无有效的顶级交易者数据。`;
+    topTradersSummaryEN = `### Top Traders Summary\nNo significant top trader activity to summarize.`;
+    topTradersSummaryZH = `### 顶级交易者摘要\n无显著的顶级交易者活动可供总结。`;
   }
-  
-  console.log("DEBUG INSTRUCTION 3 (aiAnalysisService.js): Constructed topTradersInfoEN:", topTradersInfoEN);
-  console.log("DEBUG INSTRUCTION 3 (aiAnalysisService.js): Constructed topTradersInfoZH:", topTradersInfoZH);
   
   // 为 Solana 链准备总持有者数量信息（英文版）
   const solanaHoldersTotalEN = isSolana ? `- Total Holders: ${holderStats?.totalHolders || 'Unknown'}` : '';
@@ -429,8 +239,46 @@ async function generateBasicAnalysis(tokenData, lang = 'zh') {
   // 为 Solana 链准备总持有者数量信息（中文版）
   const solanaHoldersTotalZH = isSolana ? `- 总持有者数量: ${holderStats?.totalHolders || '暂无数据'}` : '';
   
+  // 定义系统指令 - 英文版
+  const systemInstructionEN = `You are a professional cryptocurrency analyst specializing in analyzing crypto markets and on-chain data. Your primary goal is to provide a concise (around 150-200 words), data-driven, integrated basic analysis. Get straight to the point without lengthy introductions, focusing on a holistic assessment rather than a point-by-point listing. Your response must be in English.
+
+Key Analytical Guidelines:
+1.  Market Cap Evaluation (Meme Tokens):
+    * < $100k USD: Extremely early, no established momentum.
+    * $100k - $1M USD: Early stage, potential for significant growth.
+    * $1M - $5M USD: Established interest; further growth depends on strong narratives, otherwise it might be a local top for purely speculative tokens.
+    * $5M - $10M USD: Strong momentum and attention.
+    * > $10M USD: Significant capital interest and out-of-circle potential, representing a relatively high point for an early-stage meme token.
+2.  Activity Stats Analysis: Critically analyze trends across all six timeframes (1m, 30m, 2h, 6h, 12h, 24h) for Price Change %, Trade Volume, Wallet Activity, and Trade Counts. Evaluate trading fervor, capital flow, short-term momentum, and potential trend changes.
+
+Note: All 'change %' figures provided for timeframes (e.g., price change %, wallet activity change %, etc.) represent a comparison to the immediately preceding period of the same duration (sequential, period-over-period change).
+
+3.  Token Core Info Integration: Fully integrate data from Token Core Info (price, market cap, FDV, liquidity, circulating supply, total holders, etc.) to provide comprehensive background for your analysis.
+4.  Risk & Opportunity Identification: Focus on identifying the 1-2 most significant potential risks and 1-2 key opportunities by *connecting insights* from different data sections (e.g., holder stats + trading data; token metrics and on-chain activity; circulation ratio + market cap/volume for supply-side risks). Justify these points clearly.
+5.  Top Traders Summary Evaluation: Critically evaluate the 'Top Traders Summary'. Consider if the summary data (like total volume from top traders, identified bot count, buy/sell ratio) suggests concentrated activity, potential manipulation risk (e.g., high bot count), or genuine whale interest. This should not automatically equate to broad market interest.
+6.  Internal Consistency: Ensure your analysis maintains internal consistency. If you identify significant risks based on data (e.g., high bot count in Top Traders Summary, or concerning FDV vs. Market Cap), this finding should constrain or negate overly optimistic interpretations of other metrics when evaluating conclusive indicators such as 'community interest' or 'market sentiment'. Prioritize and highlight these identified key risk factors.`;
+
+  // 定义系统指令 - 中文版
+  const systemInstructionZH = `你是一位专业的加密货币分析师，擅长分析币圈和链上数据，并给出中肯的专业建议。你的主要目标是提供一段简洁（150-200字左右）、数据驱动、综合性的基本盘分析。分析应直接切入主题，不需要冗长的引言，注重整体评估而非逐条罗列。回答必须使用中文。
+
+核心分析准则：
+1.  市值评估 (Meme代币)：
+    * 低于10万美元：极早期，尚未形成势能。
+    * 10万至100万美元：早期阶段，具有较大增长潜力。
+    * 100万至500万美元：已获得一定关注，后续增长依赖强大叙事，否则对于纯炒作代币可能已是阶段性顶部。
+    * 500万至1000万美元：显示出较强劲的势头和市场关注度。
+    * 超过1000万美元：通常代表已有显著的资本关注和出圈潜力，对于早期Meme代币而言已达到一个相对较高的阶段性高点。
+2.  活动数据分析 (Activity Stats)：批判性地分析所有六个时间维度（1m, 30m, 2h, 6h, 12h, 24h）的价格变化百分比、交易量、钱包活动和交易次数的变化趋势。据此评估代币的交易热度、资金流向、短期动能及潜在趋势变化。
+
+注意：所有按时间段提供的"变化百分比"数据（如价格变化百分比、钱包活动变化百分比等）均表示与紧邻的前一个相同长度时间周期相比的环比变化。
+
+3.  代币核心信息整合：在综合评估时，充分结合代币核心信息（Token Core Info）中的各项数据（如价格、市值、FDV、流动性、流通供应量、总持有者数量等），为你的分析提供全面的背景。
+4.  风险与机遇识别：请着重于通过关联不同维度的数据（例如，结合持有者分析与交易数据；结合代币指标与链上活动；结合流通比例与市值/交易量评估供应侧风险）来识别 1-2 个最主要的潜在风险和 1-2 个关键机会，并清晰阐述判断依据。
+5.  顶级交易者摘要评估：请批判性地评估'顶级交易者摘要'。考察摘要数据（如顶级交易者的总交易量、已识别的机器人数量、买卖比例）是否暗示了交易活动高度集中、潜在的市场操纵风险（例如，高机器人占比），或者仅仅是真实的大户兴趣。这不应自动等同于广泛的市场兴趣。
+6.  内部一致性：请确保你的分析保持内部一致性。如果你根据数据识别出了显著风险（例如顶级交易者摘要中的高机器人占比，或令人担忧的FDV与市值比），那么在评估整体'社区兴趣'或'市场情绪'等结论性指标时，这一发现应当制约或否定基于其他数据得出的过于乐观的解读。优先考虑并突出这些已识别的关键风险因素。`;
+  
   // 构建英文版本的prompt
-  const promptEN = `Please provide a concise (300-400 words) integrated basic analysis **in English** based on the following token data. Please merge insights from all aspects and do not list analysis points one by one.
+  const promptEN = `Please analyze the following token data and provide your assessment:
 
 ### Token Core Info
 - Name/Symbol: ${tokenOverview.name} (${tokenOverview.symbol})
@@ -442,12 +290,13 @@ ${tokenOverview.circulationRatio !== null ? `- Circulation Ratio: ${tokenOvervie
 - FDV: ${tokenOverview.fdvFormatted ?? 'N/A'}
 ${solanaHoldersTotalEN ? `${solanaHoldersTotalEN}` : ''}
 - Possible Spam: ${metadata?.possible_spam ? 'Yes' : 'No'}
-- Security Score: ${metadata?.security_score || 'Unknown'} (Verified Contract: ${metadata?.verified_contract ? 'Yes' : 'No'})
+- Security Score: ${metadata?.security_score || 'Unknown'}
 
 ${holderInfoEN}
 
 ${Object.keys(priceChanges).length > 0 ? `
 ### Price Change % by Timeframe
+Note: "1m" = 1 minute, "30m" = 30 minutes, "2h" = 2 hours, "6h" = 6 hours, "12h" = 12 hours, "24h" = 24 hours
 ${Object.entries(priceChanges)
   .map(([tf, value]) => `- ${tf}: ${value}`)
   .join('\n')}` : ''}
@@ -467,18 +316,12 @@ ${Object.entries(tradeCounts)
   .map(([tf, { buys, sells }]) => `- ${tf}: ${buys || 'N/A'} buys / ${sells || 'N/A'} sells`)
   .join('\n')}` : ''}
 
-${topTradersInfoEN}
+${topTradersSummaryEN}
 
-### Community Links
-${metadata?.social_links ? Object.entries(metadata.social_links)
-    .filter(([key, value]) => value && key !== 'moralis')
-    .map(([key, value]) => `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
-    .join('\n') : '- No community links data'}
-
-Based on all the information above, provide an overall fundamental assessment **in English**. Focus on identifying the 1-2 most significant potential risks and 1-2 key opportunities by *connecting insights* from different data sections (e.g., holder concentration + trading data; security score + market cap). Justify these points clearly. Regarding community links, only note their presence and do not infer activity levels solely from them; correlate with holder/trader data cautiously if applicable. **Critically evaluate 'Trading Activity' and 'Top Traders': examine trader behavior patterns and tags. High transaction volume or counts dominated by bots (\`sniper-bot\`, \`bot\`) may indicate artificial liquidity or manipulation risk, NOT necessarily genuine market interest.** Evaluate the trading activity trends across different timeframes to identify short-term momentum or potential trend changes. Also consider the circulation ratio in relation to market cap and trading volume to assess potential supply-side risks. Avoid simply summarizing each section and strive for insightful judgment based on the combined data.`;
+Based on the data provided, and adhering to your established analytical guidelines, provide your assessment.`;
 
   // 构建中文版本的prompt
-  const promptZH = `请基于以下提供的代币数据，生成一段简洁（300-400字）、综合性的基本盘分析。请融合对各方面信息的考量，不要逐条罗列分析点。**请使用中文回答**。
+  const promptZH = `请分析以下代币数据并给出您的评估：
 
 ### 代币核心信息
 - 名称/符号: ${tokenOverview.name} (${tokenOverview.symbol})
@@ -490,12 +333,13 @@ ${tokenOverview.circulationRatio !== null ? `- 流通比例: ${tokenOverview.cir
 - 完全稀释估值 (FDV): ${tokenOverview.fdvFormatted ?? 'N/A'}
 ${solanaHoldersTotalZH ? `${solanaHoldersTotalZH}` : ''}
 - 可能为垃圾币: ${metadata?.possible_spam ? '是' : '否'}
-- 安全评分: ${metadata?.security_score || '未知'} (合约已验证: ${metadata?.verified_contract ? '是' : '否'})
+- 安全评分: ${metadata?.security_score || '未知'}
 
 ${holderInfoZH}
 
 ${Object.keys(priceChanges).length > 0 ? `
 ### 各时间段价格变化百分比
+注意："1m" = 1分钟, "30m" = 30分钟, "2h" = 2小时, "6h" = 6小时, "12h" = 12小时, "24h" = 24小时
 ${Object.entries(priceChanges)
   .map(([tf, value]) => `- ${tf}: ${value}`)
   .join('\n')}` : ''}
@@ -515,40 +359,93 @@ ${Object.entries(tradeCounts)
   .map(([tf, { buys, sells }]) => `- ${tf}: ${buys || 'N/A'} 买入 / ${sells || 'N/A'} 卖出`)
   .join('\n')}` : ''}
 
-${topTradersInfoZH}
+${topTradersSummaryZH}
 
-### 社区链接
-${metadata?.social_links ? Object.entries(metadata.social_links)
-    .filter(([key, value]) => value && key !== 'moralis')
-    .map(([key, value]) => `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
-    .join('\n') : '- 无社区链接数据'}
+请基于以上所有数据，并严格遵循您已知的分析准则，给出您的评估。`;
 
-根据以上所有信息，请给出整体的基本面评估。**请用中文回答**。请着重于通过**关联不同维度的数据**（例如，结合持有者集中度与交易数据；结合安全评分与市值等）来识别 1-2 个最主要的**潜在风险**和 1-2 个**关键机会**，并清晰阐述判断依据。关于社区链接，仅需提及存在与否，**切勿**仅凭链接推断社区活跃度或情绪；如果适用，可谨慎地将持有者增长或交易者数量多作为社区兴趣的*间接*指标进行关联。**请批判性地评估'交易分析'和'顶级交易者'数据：分析交易者行为模式和标签。由机器人主导的高频交易或大量的买卖次数（标签含'sniper-bot'或'bot'），可能暗示人为流动性或操纵风险，而*不一定*代表真实的市场兴趣。**考察不同时间段的交易活动趋势，识别短期动量或潜在趋势变化。同时，分析流通比例与市值和交易量的关系，评估供应侧的潜在风险。最终评估应避免简单罗列各部分结论，力求提供基于全局信息的、**有洞察力的判断**。`;
-
-  // 根据请求的语言选择相应的prompt
-  const finalPrompt = lang === 'en' ? promptEN : promptZH;
-  console.log(`[aiService] Prompt prepared. Length: ${finalPrompt.length}, Language: ${lang}`);
+  // 根据请求的语言选择相应的system instruction和prompt
+  const selectedSystemInstruction = lang === 'en' ? systemInstructionEN : systemInstructionZH;
+  const selectedUserPrompt = lang === 'en' ? promptEN : promptZH;
   
-  // 使用现有函数发送到Grok API
+  console.log(`[aiService] Preparing to call Gemini. Language: ${lang}`);
+  
+  // 安全地打印 System Instruction 的长度
+  if (selectedSystemInstruction && typeof selectedSystemInstruction === 'string') {
+    console.log(`[aiService] Selected System Instruction Length: ${selectedSystemInstruction.length}`);
+  } else {
+    console.log(`[aiService] Selected System Instruction is undefined, null, or not a string.`);
+  }
+  
+  console.log(`[aiService] Selected User Prompt Length: ${selectedUserPrompt ? selectedUserPrompt.length : 0}`);
+
+  // --- 打印完整的 System Instruction ---
+  console.log("========== FULL SYSTEM INSTRUCTION FOR GEMINI (START) ==========");
+  if (selectedSystemInstruction && typeof selectedSystemInstruction === 'string') {
+    process.stdout.write(selectedSystemInstruction + '\n\n'); // 加两个换行符以作清晰分隔
+  } else {
+    process.stdout.write("System Instruction IS UNDEFINED OR EMPTY\n\n");
+  }
+  console.log("========== FULL SYSTEM INSTRUCTION FOR GEMINI (END) ==========");
+
+  // --- 打印完整的 User Prompt (这部分用户反馈已能看到，保持即可) ---
+  console.log("========== FULL USER PROMPT FOR GEMINI (START) ==========");
+  if (selectedUserPrompt && typeof selectedUserPrompt === 'string') {
+    process.stdout.write(selectedUserPrompt + '\n');
+  } else {
+    process.stdout.write("User Prompt IS UNDEFINED OR EMPTY\n");
+  }
+  console.log("========== FULL USER PROMPT FOR GEMINI (END) ==========");
+  
+  // 使用Gemini API，传递systemInstruction和userPrompt
   try {
-    console.log('[aiService] Calling external AI API via generateGrokAnalysis...');
-    const result = await generateGrokAnalysis(finalPrompt);
-    console.log('[aiService] External AI API call finished.');
+    console.log('[aiService] Calling Gemini API via generateGeminiAnalysis...');
+    const result = await generateGeminiAnalysis(selectedSystemInstruction, selectedUserPrompt);
+    console.log('[aiService] Gemini API call finished.');
     
     if (result.success) {
       console.log('[aiService] generateBasicAnalysis finished, returning successful result.');
-      // Add more detailed logging
       console.log('[aiService] Final AI analysis length:', result.analysis ? result.analysis.length : 0);
-      console.log('[aiService] Final AI analysis first 100 chars:', result.analysis ? result.analysis.substring(0, 100) : 'N/A');
-      return result;
+      
+      // 确保透传 usageMetadata
+      return {
+        success: true,
+        analysis: result.analysis,
+        usageMetadata: result.usageMetadata // 透传 usageMetadata
+      };
     } else {
       console.error('[aiService] generateBasicAnalysis finished with error:', result.error);
       return result;
     }
   } catch (error) {
-    console.error('[aiService] ERROR during external AI API call:', error);
+    console.error('[aiService] ERROR during Gemini API call:', error);
     throw error; // Re-throw after logging
   }
+}
+
+/**
+ * 兼容性函数 - 旧版Grok API函数的别名，现在转向使用Gemini
+ * 这个函数保持旧的函数签名不变，但内部实现已迁移到Gemini API
+ * @param {string} prompt - 发送给AI的提示
+ * @returns {Promise<{success: boolean, analysis?: string, error?: string, details?: string, usageMetadata?: object}>}
+ */
+async function generateGrokAnalysis(prompt) {
+  console.log('[aiService] 兼容性调用: generateGrokAnalysis 已重定向到 generateGeminiAnalysis');
+  
+  // 确定提示语言，默认使用英文系统指令
+  const isEnglishPrompt = prompt.includes("in English") || prompt.includes("English") || prompt.includes("Please provide");
+  
+  // 创建基于检测语言的系统消息
+  const systemInstruction = isEnglishPrompt
+    ? `You are a professional cryptocurrency analyst specializing in analyzing crypto markets and on-chain data. Provide concise, data-focused analysis with clear professional insights. Get straight to the point without lengthy introductions. Your response must be in English.
+
+Please ensure your analysis maintains internal consistency. If you identify significant risks based on \`topTraders\` data (such as extensive bot activity or potential manipulation), this finding should **constrain or negate** overly optimistic interpretations of other metrics like trader count when evaluating conclusive indicators such as 'community interest' or 'market sentiment'. **Prioritize** and highlight these identified key risk factors, avoiding contradictory conclusions across different parts of the analysis or in the final summary.`
+    : `你是一位专业的加密货币分析师，擅长分析币圈和链上数据，并给出中肯的专业建议。分析时应注重数据，讲究专业性，输出内容简洁明了，易于理解。回答要直接切入主题，不需要冗长的引言，只需提供核心观点和结论。回答必须使用中文。
+
+请确保你的分析保持内部一致性。如果你根据 \`topTraders\` 数据识别出了显著风险（例如大量机器人活动或潜在操纵），那么在评估整体'社区兴趣'或'市场情绪'等结论性指标时，这一发现应当**制约或否定**基于其他数据（如交易者数量）得出的过于乐观的解读。**优先考虑**并突出这些已识别的关键风险因素，避免在分析的不同部分或最终总结中出现自相矛盾的结论。`;
+  
+  // 调用generateGeminiAnalysis，传递systemInstruction和用户提示
+  // 返回结果中将包含 usageMetadata
+  return generateGeminiAnalysis(systemInstruction, prompt);
 }
 
 // Keep the deprecated alias for backward compatibility if needed, but point it to Grok
@@ -557,14 +454,217 @@ ${metadata?.social_links ? Object.entries(metadata.social_links)
 //   return generateGrokAnalysis(prompt); // ContextDataString is not used by Grok prompt structure here
 // }
 
+/**
+ * 测试Gemini API连接
+ * @returns {Promise<{success: boolean, message?: string, error?: string}>}
+ */
+async function testGeminiConnection() {
+  console.log('[GeminiService] Testing Gemini API connection...');
+  
+  if (!genAI || !geminiApiKey) {
+    return {
+      success: false,
+      error: 'API密钥未设置或AI客户端未初始化',
+      message: '请在.env文件中设置GEMINI_API_KEY'
+    };
+  }
+  
+  const geminiModelNameForTest = "gemini-2.5-pro-preview-05-06";
+  
+  try {
+    // 为测试获取一个配置好的模型实例
+    const testModel = genAI.getGenerativeModel({
+      model: geminiModelNameForTest,
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 50,
+      },
+      httpOptions: {
+        timeout: 60000
+      }
+    });
+    
+    const prompt = "Hello, this is a connection test. Please respond with 'Connection successful!' if you can process this request.";
+    
+    const result = await testModel.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    console.log('[GeminiService] Connection test successful.');
+    
+    return {
+      success: true,
+      message: 'Gemini API连接成功'
+    };
+  } catch (error) {
+    console.error('[GeminiService] Connection test failed:', error);
+    
+    return {
+      success: false,
+      error: '连接测试失败',
+      message: error.message || '未知错误'
+    };
+  }
+}
+
+/**
+ * 使用Gemini API生成文本分析
+ * @param {string} systemInstruction - 系统指令，定义AI的角色和行为准则
+ * @param {string} userPrompt - 用户提示，包含具体的分析请求和数据
+ * @returns {Promise<{success: boolean, analysis?: string, error?: string, details?: string, usageMetadata?: object}>}
+ */
+async function generateGeminiAnalysis(systemInstruction, userPrompt) {
+  console.log('===== 开始 Gemini AI 分析 =====');
+  console.log('API Key设置状态:', !!geminiApiKey);
+  
+  if (!genAI || !geminiApiKey) {
+    console.error('Gemini AI client 未初始化 (API Key 可能缺失)!');
+    return {
+      success: false,
+      error: 'Gemini API密钥未配置或客户端未初始化',
+      details: '请在backend目录根目录下创建.env文件，并添加GEMINI_API_KEY=your_api_key'
+    };
+  }
+  
+  // 如果只提供了一个参数，那么它被视为用户提示
+  if (userPrompt === undefined) {
+    userPrompt = systemInstruction;
+    systemInstruction = undefined;
+  }
+  
+  // 保留简短的提示信息
+  console.log(`User Prompt长度: ${userPrompt.length} 字符`);
+  
+  const geminiModelName = "gemini-2.5-pro-preview-05-06";
+  
+  try {
+    console.log('[GeminiService] 发送请求到Gemini API...');
+    
+    // 在调用时动态配置模型，特别是 systemInstruction
+    const modelInstance = genAI.getGenerativeModel({
+      model: geminiModelName,
+      systemInstruction: systemInstruction, // 直接传递 systemInstruction 字符串
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 8192,
+      },
+      // 设置较长的超时时间 (60秒)
+      httpOptions: {
+        timeout: 60000 // 60秒超时
+      }
+    });
+    
+    console.log(`[GeminiService] 使用模型: ${geminiModelName}`);
+    
+    // 添加详细请求Payload日志
+    console.log("========== Gemini API Request Payload Detail START ==========");
+    console.log("Model Used (configured in getGenerativeModel):", geminiModelName);
+    console.log("System Instruction (configured in getGenerativeModel - first 200 chars):", systemInstruction ? systemInstruction.substring(0, 200) + '...' : "N/A");
+    // 注释掉打印User Prompt预览的日志
+    // console.log("User Prompt (passed to generateContent - first 500 chars):", userPrompt ? userPrompt.substring(0, 500) + '...' : "N/A");
+    console.log("Full User Prompt Length (chars):", userPrompt ? userPrompt.length : 0);
+    
+    const modelConfigForLog = {
+      model: geminiModelName,
+      systemInstruction_length: systemInstruction ? systemInstruction.length : 0,
+      safetySettings_from_code: [
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+      generationConfig_from_code: {
+        temperature: 0.7,
+        maxOutputTokens: 8192,
+      },
+      httpOptions_from_code: { timeout: 60000 }
+    };
+    console.log("Model Configuration Used:", JSON.stringify(modelConfigForLog, null, 2));
+    console.log("========== Gemini API Request Payload Detail END ==========");
+    
+    // 调用Gemini API - 现在只传递 userPrompt
+    const result = await modelInstance.generateContent(userPrompt);
+    const response = await result.response;
+    
+    if (!response) {
+      console.error('[GeminiService] CRITICAL: Response object is undefined after result.response. This should not happen if API call was successful.');
+      return { success: false, error: "Gemini API response object is undefined.", details: "result.response was undefined." };
+    }
+    
+    // 保留完成原因日志，这对调试很有用
+    const finishReason = response.candidates && response.candidates[0] ? response.candidates[0].finishReason : "N/A";
+    console.log('[GeminiService] Finish Reason:', finishReason);
+    
+    // 仅在有提示反馈时记录提示反馈
+    if (response.promptFeedback) {
+      console.log('[GeminiService] Prompt Feedback available, reason:', response.promptFeedback.blockReason || 'N/A');
+    }
+    
+    const text = response.text();
+    const usageMetadata = response.usageMetadata || null; // 获取 usageMetadata
+    
+    console.log('[GeminiService] Token Usage:', JSON.stringify(usageMetadata, null, 2));
+    
+    console.log('成功从Gemini API获取响应!');
+    console.log('响应预览:', text.substring(0, 50) + '...');
+    console.log('AI响应完整长度:', text.length);
+    
+    return {
+      success: true,
+      analysis: text,
+      usageMetadata: usageMetadata // 添加 usageMetadata 到返回对象中
+    };
+    
+  } catch (error) {
+    console.error('[GeminiService] Gemini API调用失败:', error);
+    
+    let errorMessage = 'Gemini API调用失败';
+    let errorDetails = error.message || '未知错误';
+    
+    // 检查特定类型的错误
+    if (error.message && error.message.includes('safety')) {
+      errorMessage = 'Gemini安全过滤触发';
+      errorDetails = '提示内容可能触发了Gemini的内容安全过滤';
+    } else if (error.message && error.message.includes('rate limit')) {
+      errorMessage = 'Gemini API限流';
+      errorDetails = '已达到API调用限制，请稍后再试';
+    } else if (error.message && error.message.includes('timeout')) {
+      errorMessage = 'Gemini API请求超时';
+      errorDetails = '请求超时，可能是服务器负载过高';
+    }
+    
+    return {
+      success: false,
+      error: errorMessage,
+      details: errorDetails
+    };
+  }
+}
+
 module.exports = {
   // generateAnalysis, // Deprecated alias removed
   generateGrokAnalysis,
-  generateBasicAnalysis
+  generateBasicAnalysis,
+  generateGeminiAnalysis,
+  testGeminiConnection
 };
 
 console.log("=========================================");
 console.log("Successfully exported functions from aiAnalysisService.js:");
 console.log("- generateGrokAnalysis: ", typeof generateGrokAnalysis);
 console.log("- generateBasicAnalysis: ", typeof generateBasicAnalysis);
+console.log("- generateGeminiAnalysis: ", typeof generateGeminiAnalysis);
+console.log("- testGeminiConnection: ", typeof testGeminiConnection);
 console.log("=========================================");
