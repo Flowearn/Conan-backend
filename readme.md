@@ -2,9 +2,9 @@
 
 ## 1. 项目概述 (Project Overview)
 
-Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利用 AI 模型（如 Grok）对 Meme 代币进行深入、综合的分析。为了实现这一目标，平台首先需要高效地聚合、处理来自不同区块链（当前支持 BSC 和 Solana，未来将扩展到其他链）的链上数据。
+Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利用 AI 模型对 Meme 代币进行深入、综合的分析。为了实现这一目标，平台首先需要高效地聚合、处理来自不同区块链（当前支持 BSC 和 Solana，未来将扩展到其他链）的链上数据。
 
-平台通过后端服务调用第三方 API（主要是 Moralis 和 Birdeye）获取代币的元数据、价格、市值、流动性、持有者统计、交易者信息等，进行标准化处理后，一方面通过 API 接口提供给前端进行数据展示，**更重要的是，将这些结构化的数据准备好，作为输入提供给 AI 模型进行分析**。
+后端服务的核心功能是获取、处理、**完全格式化**代币数据，并为前端和 **Gemini AI 分析服务**提供高质量输入。这些数据经过标准化处理后，一方面通过 API 接口提供给前端进行数据展示，**更重要的是，将这些结构化的数据准备好，作为输入提供给 Google Gemini AI 模型进行深度分析**。
 
 后端已成功实现 BSC 和 Solana 链的数据聚合与标准化，可以稳定获取并处理完整的代币数据，为进一步AI分析功能优化和多链扩展奠定了坚实基础。
 
@@ -16,7 +16,26 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
 * **`tokenAnalytics` 对象:** 作为核心的数据输出结构之一，其叶子节点的 `value` 属性存储预格式化字符串，同时包含 `actualTimeframe` 属性来指明数据的真实时间来源，确保前端显示的时间标签精确反映数据的实际来源。
 * **动态时间维度处理:** 针对特定时间槽（如6h、12h）实现了回退逻辑（如6h->4h, 12h->8h），当首选时间维度数据不可用时，系统会回退到次选时间维度数据，并通过 `actualTimeframe` 字段准确记录实际使用的数据源时间。
 
-## 3. 技术栈 (Tech Stack)
+## 3. AI 分析服务集成
+
+* **当前 AI 模型:** 当前使用的是 **Google Gemini 2.5 Pro Preview** (具体模型ID为 `gemini-2.5-pro-preview-05-06`)，已从之前的 Grok 模型成功迁移。
+* **API 调用方式:** 通过 Google 官方的 `@google/generative-ai` Node.js 客户端库进行调用。
+* **System Instruction:** 为 Gemini 模型设计了详细的、区分中英文的 System Instruction，用于设定 AI 的角色、分析准则、输出风格和行为约束。这些指令在调用模型时通过 `getGenerativeModel` 的 `systemInstruction` 参数传递，包含：
+  * 市值评估标准 (针对 Meme 代币)
+  * 活动数据分析指导 (跨六个时间维度)
+  * 风险和机会识别方法
+  * 顶级交易者摘要评估准则
+  * 输出格式和长度要求 (150-200字左右)
+* **User Prompt 构建:**
+  * User Prompt 包含了从 `tokenData` (包括 `tokenOverview`, `tokenAnalytics` 等) 中提取的、已由后端预格式化的详细代币数据。
+  * 为了优化 token 消耗和分析质量，"Top Traders" 的详细列表已从 User Prompt 中移除，改为提供**聚合统计摘要信息**，包括总交易额、总交易次数、机器人数量和买卖比例。
+  * User Prompt 的指令部分已被精简，核心分析方法论和约束已移至 System Instruction。
+  * User Prompt 中已添加对时间框架缩写（1m, 2h 等）和百分比变化定义的解释，以辅助 AI 理解。
+* **Token 使用追踪:** `generateGeminiAnalysis` 和 `generateBasicAnalysis` 函数会在成功返回的结果中包含 `usageMetadata` 对象，以便追踪 token 消耗。
+* **主要服务文件:** `src/services/aiAnalysisService.js` 包含所有与 Gemini API 交互和 Prompt 构建的核心逻辑。
+* **模型配置优化:** 为提高效率，已将 `maxOutputTokens` 从 81920 降低至 8192，同时确保足够生成 150-200 字的分析结果。
+
+## 4. 技术栈 (Tech Stack)
 
 * **后端 (Backend - `conan-backend` repo):**
     * **语言:** JavaScript (Node.js v18.x)
@@ -25,7 +44,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
     * **部署:** Serverless Framework (v3.x) 部署至 AWS Lambda + API Gateway
     * **配置管理:** 本地使用 `.env` 文件, 部署环境使用 AWS SSM Parameter Store (区域: `ap-southeast-1`)
     * **缓存:** node-cache (内存缓存)
-    * **核心库:** `serverless-http`, `axios`, `node-cache`, `cors`, `dotenv`
+    * **核心库:** `serverless-http`, `axios`, `node-cache`, `cors`, `dotenv`, `@google/generative-ai`
 * **前端 (Frontend - `conan-frontend` repo):**
     * **语言:** TypeScript
     * **框架:** Next.js (^14.x), React (^18.x) (App Router)
@@ -34,11 +53,11 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
 * **主要外部 API:**
     * Moralis API (BSC链数据)
     * Birdeye API (Solana链数据及交易者信息)
-    * Grok API (XAI) (用于核心 AI 分析功能)
+    * Google Gemini API (用于核心 AI 分析功能)
 * **版本控制:** Git, GitHub
 * **开发工具:** VS Code / Cursor, npm
 
-## 4. 项目结构 (Project Structure)
+## 5. 项目结构 (Project Structure)
 
 本项目采用前后端分离架构，拥有独立的 Git 仓库。
 
@@ -48,17 +67,18 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
         * `services/`: 包含各区块链数据处理及 AI 分析逻辑。
             * `BscService.js`: 负责处理 BSC 链的数据获取和标准化，通过内部定义的 `_fetch...` 辅助函数直接调用 Moralis/Birdeye API，不依赖其他服务文件。
             * `SolanaService.js`: 负责处理 Solana 链的数据获取和标准化，支持Birdeye API数据整合。
-            * `aiAnalysisService.js`: 负责与 Grok API 交互，接收标准化数据并返回 AI 分析结果的逻辑。
+            * `aiAnalysisService.js`: 负责与 Gemini API 交互，接收标准化数据并返回 AI 分析结果的逻辑。
         * `utils/`: 通用工具函数。
             * `formatters.js`: 数据格式化函数 (如货币、数字后缀)。
             * `ssm-params.js`: 加载环境变量或 SSM 参数的简化逻辑。
     * `serverless.yml`: Serverless Framework 配置文件，定义 AWS 资源和部署设置。
     * `package.json`: Node.js 项目依赖。
+    * `test-gemini.js`: 测试脚本，用于验证 Gemini API 的基本连接和内容生成功能。
     * `README.md`: 本文档。
     * **(建议)** `.env.example`: 环境变量模板文件。
 * **前端 (`Flowearn/conan-frontend`):** (标准 Next.js 项目结构)
 
-## 5. 安装与设置 (Setup & Installation)
+## 6. 安装与设置 (Setup & Installation)
 
 **前提:**
 
@@ -87,7 +107,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
         # 需要从各平台获取 API Key
         MORALIS_API_KEY=your_moralis_api_key
         BIRDEYE_API_KEY=your_birdeye_api_key
-        XAI_API_KEY=your_xai_grok_api_key
+        GEMINI_API_KEY=your_gemini_api_key  # 从 Google AI Studio 获取
         ```
     * **(建议)** 创建一个 `.env.example` 文件，包含上述 Key 的名称（值可以为空），方便其他人配置。
 
@@ -103,7 +123,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
         NEXT_PUBLIC_API_BASE_URL=http://localhost:3003 # 本地开发指向 Serverless Offline 端口
         ```
 
-## 6. 本地运行 (Running Locally)
+## 7. 本地运行 (Running Locally)
 
 1.  **启动后端:**
     * 确保在 `conan-backend` 目录下。
@@ -125,7 +145,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
         ```
     * 前端应用通常在 `http://localhost:3000` 上可用。
 
-## 7. API 端点 (API Endpoints)
+## 8. API 端点 (API Endpoints)
 
 * **`GET /api/token-data/:chain/:address`**
     * **:chain:** `bsc` 或 `solana`（注意：现在支持自动链检测，系统会根据地址格式自动判断是BSC还是Solana）
@@ -144,7 +164,8 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
             "tokenAnalytics": { /* 代币交易统计分析 */ },
             "metadata": { /* 代币元数据详情 */ },
             "aiAnalysis": { 
-              "basicAnalysis": "详细的 AI 分析结果..." 
+              "basicAnalysis": "详细的 AI 分析结果...",
+              "usageMetadata": { /* Token 使用信息 */ }
             }  // 仅当请求包含 analyze=true 时
           },
           "source": "api", // 或 "cache"、"api+ai"、"cache+ai"，指示数据来源
@@ -153,7 +174,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
         ```
     * **失败响应:** 可能返回错误状态码和错误信息 JSON。
 
-## 8. 部署 (Deployment)
+## 9. 部署 (Deployment)
 
 * 部署通过 Serverless Framework 完成。
 * **前提:**
@@ -175,9 +196,9 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
     * **环境:**
         * **Dev 环境:** `https://3du1z9vqkg.execute-api.ap-southeast-1.amazonaws.com/` (基于 `dev` 分支)
         * **Prod 环境:** `https://885tg68kdg.execute-api.ap-southeast-1.amazonaws.com/` (基于 `master` 分支)
-    * 所有最新修复和重构均已成功部署到两个环境中，包括Solana链支持和自动链检测功能
+    * 所有最新修复和重构均已成功部署到两个环境中，包括Solana链支持、自动链检测功能和Gemini AI集成
 
-## 9. 关键架构与逻辑 (Key Architecture & Logic)
+## 10. 关键架构与逻辑 (Key Architecture & Logic)
 
 * 采用前后端分离模式。
 * 后端 API (`index.js`) 会自动检测地址格式以判断链类型，将请求分发给对应的 Service (`BscService.js`, `SolanaService.js`)。
@@ -194,12 +215,27 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
   * 使用 `node-cache` 对基础数据进行内存缓存，缓存键格式为 `baseTokenData:${detectedChain}:${address}`。
   * 缓存策略已优化，明确只缓存基础代币数据，避免旧的 AI 分析结果污染缓存。
 * **AI 分析流程:**
-  * 当请求参数包含 `analyze=true` 时，`aiAnalysisService.js` 会接收基础数据，调用 Grok API，生成并返回分析结果。
+  * 当请求参数包含 `analyze=true` 时，`aiAnalysisService.js` 会接收基础数据，调用 Gemini API，生成并返回分析结果。
   * AI 分析在获取基础数据后进行，无论基础数据是来自缓存还是新获取的。
   * 分析结果作为 `aiAnalysis` 字段添加到响应中，但不存储在缓存中。
-  * 支持中英文两种语言的 AI 分析，通过 `lang` 参数指定（默认为英文）。
+  * 支持中英文两种语言的 AI 分析，通过 `lang` 参数指定。
+  * 调用 Gemini API 时的关键配置：
+    * 设置 `maxOutputTokens` 为 8192，确保生成完整响应
+    * HTTP 超时设置为 60 秒
+    * 使用 `systemInstruction` 参数设置分析指南和行为约束
+    * 在 Lambda 函数本身设置了足够长的超时时间（通常为 120 秒或更长）
 
-## 10. 最新更新 (Latest Updates - 2025年5月)
+## 11. 最新更新 (Latest Updates - 2025年5月)
+
+### AI 分析模型迁移与优化
+* ✅ **从 Grok 迁移到 Gemini:** 成功将 AI 分析模型从 Grok 迁移到 Google Gemini 2.5 Pro Preview (模型ID: `gemini-2.5-pro-preview-05-06`)。
+* ✅ **System Instruction 优化:** 为 Gemini 设计了详细的、区分中英文的 System Instruction，系统地指导 AI 的分析过程，并传递给模型更多专业背景知识和行为约束。
+* ✅ **Top Traders 数据摘要:** 将之前的详细 Top Traders 列表替换为聚合统计摘要，显著减少输入 token 消耗，同时保留关键信号。
+* ✅ **时间框架说明:** 在 User Prompt 中添加了时间框架缩写和百分比变化定义的解释，帮助 AI 更准确地理解和分析数据。
+* ✅ **Token 使用追踪:** 添加了 `usageMetadata` 对象到返回结果中，以便追踪和优化 token 消耗。
+* ✅ **提高输出质量:** 通过精心设计的 System Instruction 和 User Prompt，显著提高了分析的质量、相关性和一致性。
+* ✅ **优化输出长度:** 将分析输出长度从100-150字调整为150-200字，同时将 `maxOutputTokens` 从 81920 降低至 8192，提高处理效率。
+* ✅ **安全评分泛化:** 在提示中对安全评分的引用已泛化，以适应不同数据源可能提供的评分格式。
 
 ### 数据处理和标准化优化
 * ✅ **后端完全格式化**: 成功实现了所有数值型数据（价格、金额、数量、百分比等）在后端的预格式化，直接提供给前端和AI服务的是最终显示格式的字符串，无需前端再进行格式化处理。
@@ -209,14 +245,6 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
 * ✅ **数值格式化优化**: 对交易量、持有者数量等数值进行了智能格式化处理:
   * 自动判断应使用完整数值(小于1000)还是简化表示(K, M, B等)
   * 针对不同数据类型采用适当精度，如价格使用最多8位小数，百分比使用2位小数
-
-### AI分析功能增强
-* ✅ **丰富的数据输入**: 现在向AI分析服务(如Grok)提供更详细的数据以生成全面分析:
-  * 添加了Solana链的**流通比例 (`circulationRatio`)** 数据，使AI能够评估代币的实际流通情况
-  * 增加了**多时间段活动数据**，包括价格变化百分比、交易量、钱包活动、买卖次数等，覆盖多个时间段，使AI能够分析短期和中期趋势
-  * **顶级交易者数据**得到显著增强，修复了之前数据显示为0的问题，现在向AI提供最多前10名交易者的买/卖次数和格式化后的交易总额
-* ✅ **链特定数据优化**: 对Solana链的持有者信息 (`holderStats`) 在发送给AI时进行了简化，仅包含总持有者数 (`totalHolders`)，以区别于BSC链的详细持有者统计，避免AI分析中出现无效数据参考
-* ✅ **分析输出优化**: 基于上述输入数据的增强，`aiAnalysis.basicAnalysis`字段现在能够提供更准确、更细致的代币分析，特别是在交易活动模式、价格短期趋势和持有者行为方面
 
 ### API 处理器重构与多链支持
 * ✅ 添加了自动链检测功能，系统能够根据地址格式（以"0x"开头为BSC，否则为Solana）自动判断链类型。
@@ -237,7 +265,7 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
 * ✅ 修复了顶级交易者数据(`topTraders`)处理中的问题，确保交易金额和交易次数正确显示。
 * ✅ 解决了AI分析服务在处理特定结构数据(如嵌套的时间序列数据)时的兼容性问题。
 * ✅ 修复了 `aiAnalysisService.js` 中处理预格式化字符串 `priceChange24h` 时的 `TypeError`。
-* ✅ 设置了 AI 分析函数的默认语言（当请求中缺少 `lang` 参数时）为 `'en'`。
+* ✅ 设置了 AI 分析函数的默认语言（当请求中缺少 `lang` 参数时）为 `'zh'`。
 * ✅ 加强了错误处理以防止在各种边缘情况下出现服务中断，包括基础数据获取失败和 AI 分析过程中的错误。
 
 ### 日志记录增强
@@ -247,45 +275,4 @@ Conan 旨在成为一个先进的数据平台，其**最终核心目标**是利�
 
 ### 部署状态
 * ✅ 所有最新功能和修复已成功部署到 Dev 和 Prod 环境。
-* ✅ 多链支持（BSC和Solana）已在两个环境中经过全面测试并正常工作。
-* ✅ 自动链检测功能已上线并稳定运行。
-* ✅ 关键环境变量已更新，包括AI服务API密钥和端点配置。
-
-### Solana 数据获取问题最终诊断与解决 (更新于 2025-05-06)
-
-**问题现象:**
-此前，后端应用在尝试获取 Solana Token (`6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN`) 数据时，即使切换到 `public-api.birdeye.so` 并使用了正确的路径和 Headers，应用调用时仍无法获取完整数据（API 返回 200 OK 但 `data` 字段为 `null` 或 `{}`），尽管直接使用 `curl` 测试有时能成功。
-
-**【最终根本原因】:**
-问题的根源在于：在将 Solana Token 地址传递给 `SolanaService.js` 或进行 Birdeye API 调用之前，应用程序的**某处代码（推测在 `index.js` 处理路由参数或 `SolanaService.js` 入口处）错误地对地址字符串执行了 `.toLowerCase()` 操作**。由于 **Solana 地址是大小写敏感的**，这导致传递给 Birdeye API 的地址实际上是无效的，Birdeye 无法匹配到正确的代币，因此返回了空的数据负载（`data: null` 或 `data: {}`）。
-
-**【解决方案】:**
-1. 全面检查并修正了所有处理 Solana 地址的代码，确保在任何地方都保留地址的原始大小写。
-2. 明确区分不同链的地址处理：BSC 地址可以使用 `.toLowerCase()`（因为它们是不区分大小写的），但 Solana 地址必须保持原样。
-3. 在代码中添加警告注释，提醒开发者 Solana 地址的大小写敏感性。
-4. 更新了自动链检测代码，确保其在判断地址类型后能正确地保留地址的原始格式。
-
-这些修改确保了 Solana 代币数据能够被正确获取和处理，从而使整个后端系统能够稳定地支持多链服务。
-
-## 11. 未来计划 (Future Roadmap)
-
-* **核心功能:**
-    * ✅ (已完成) `BscService.js` 重构与优化，使其能够独立获取完整数据。
-    * ✅ (已完成) 确保 `tokenAnalytics` 和 `metadata` 正确包含在 BSC 数据响应中。
-    * ✅ (已完成) 修复 `holderStats` 计算。
-    * ✅ (已完成) 集成 Price API 并正确处理价格和价格变化。
-    * ✅ (已完成) 修复 `topTraders` 标准化。
-    * ✅ (已完成) 实现 Birdeye Top Traders 的稳定获取与标准化（BSC部分）。
-    * ✅ (已完成) 实现 `aiAnalysisService.js` 与 Grok API 的完整集成。
-    * ✅ (已完成) 重构 API 处理器，优化缓存策略并修复 AI 分析触发逻辑。
-    * ✅ (已完成) 完成 `SolanaService.js` 的数据获取和标准化逻辑。
-    * ✅ (已完成) 实现自动链检测功能。
-    * ✅ (已完成) 前端开发与后端数据对接。
-    * ✅ (已完成) 部署测试并优化性能。
-* **优化与扩展:**
-    * 添加更多区块链支持 (如 Base)。
-    * 前端 UI/UX 优化，更好地展示数据和 AI 分析。
-    * 添加更健壮的错误处理和日志记录。
-    * 考虑更持久化的缓存或数据库方案（如果 API 调用量大或需要历史数据）。
-    * 完善单元测试和集成测试。
-    * 优化 AI 分析提示模板，提高分析质量和准确性。
+* ✅ 多链支持（BSC和Solana）和 Gemini AI 集成已在两个环境中经过全面测试并正常工作。
